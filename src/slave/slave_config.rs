@@ -31,7 +31,7 @@ use url::Url;
 use crate::{preferences::PreferencesModel, slave::video::{VideoDecoder, ColorspaceConversion, VideoCodecProvider, VideoCodec}};
 use super::{SlaveMsg, video::{VideoAlgorithm, VideoEncoder}};
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative, PartialEq, Clone)]
 #[derivative(Default)]
 pub struct SlaveConfigModel {

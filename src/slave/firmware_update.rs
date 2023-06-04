@@ -47,7 +47,7 @@ pub enum SlaveFirmwareUpdaterMsg {
     FirmwareUploadFailed(SlaveFirmwareUpdateError),
 }
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative)]
 #[derivative(Default)]
 pub struct SlaveFirmwareUpdaterModel {

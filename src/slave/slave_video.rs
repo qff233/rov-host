@@ -31,7 +31,7 @@ use derivative::*;
 use crate::{preferences::PreferencesModel, slave::video::{MatExt, ImageFormat, VideoSource}, async_glib::{Promise, Future}};
 use super::{slave_config::SlaveConfigModel, SlaveMsg};
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative)]
 #[derivative(Default)]
 pub struct SlaveVideoModel {

@@ -50,7 +50,7 @@ pub type RpcClient = HttpClient;
 pub type RpcClientBuilder = HttpClientBuilder;
 pub type RpcParams = jsonrpsee_http_client::types::ParamsSer<'static>;
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative)]
 #[derivative(Default)]
 pub struct SlaveModel {
@@ -90,7 +90,7 @@ pub struct SlaveModel {
     pub config_presented: bool,
 }
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative)]
 #[derivative(Default)]
 pub struct SlaveInfoModel {
@@ -587,7 +587,6 @@ async fn communication_main_loop(input_rate: u16,
             task::sleep(Duration::from_millis(status_info_udpate_interval)).await;
         }
     }));                        // 定时请求数据
-    
     let control_send_task = task::spawn(clone!(@strong idle, @strong communication_sender, @strong rpc_client, @strong control_packet => async move {
         loop {
             if communication_sender.is_closed() {
@@ -596,16 +595,18 @@ async fn communication_main_loop(input_rate: u16,
             if *idle.lock().await {
                 let mut control_mutex = control_packet.lock().await;
                 if let Some(control) = control_mutex.as_ref() {
-                    match rpc_client.batch_request::<()>(vec![(METHOD_MOVE, Some(control.motion.to_rpc_params())),
-                                                              (METHOD_SET_DEPTH_LOCKED, Some(control.depth_locked.to_rpc_params())),
-                                                              (METHOD_SET_DIRECTION_LOCKED, Some(control.direction_locked.to_rpc_params())),
-                                                              (METHOD_CATCH, Some(control.catch.to_rpc_params())),]).await {
-                        Ok(_) => *control_mutex = None,
-                        Err(err) => {
-                            communication_sender.send(SlaveCommunicationMsg::ConnectionLost(err)).await.unwrap_or_default();
-                            break;
+                    for (method, params) in vec![(METHOD_MOVE, Some(control.motion.to_rpc_params())),
+                                                 (METHOD_SET_DEPTH_LOCKED, Some(control.depth_locked.to_rpc_params())),
+                                                 (METHOD_SET_DIRECTION_LOCKED, Some(control.direction_locked.to_rpc_params())),
+                                                 (METHOD_CATCH, Some(control.catch.to_rpc_params())),].into_iter() {
+                        match rpc_client.request::<()>(method, params).await {
+                            Ok(_) => *control_mutex = None,
+                            Err(err) => {
+                                communication_sender.send(SlaveCommunicationMsg::ConnectionLost(err)).await.unwrap_or_default();
+                            }
                         }
                     }
+
                 }
             }
             task::sleep(Duration::from_millis(1000 / input_rate as u64)).await;

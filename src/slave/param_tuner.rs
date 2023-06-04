@@ -69,7 +69,7 @@ impl std::fmt::Display for SlaveParameterTunerError {
 
 impl Error for SlaveParameterTunerError {}
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative, PartialEq, Clone)]
 #[derivative(Default)]
 pub struct PropellerModel {
@@ -141,7 +141,7 @@ impl PropellerModel {
     }
 }
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative, PartialEq, Clone)]
 #[derivative(Default)]
 pub struct ControlLoopModel {
@@ -188,7 +188,7 @@ impl ControlLoopModel {
     }
 }
 
-#[tracker::track(pub)]
+#[tracker::track]
 #[derive(Debug, Derivative)]
 #[derivative(Default)]
 pub struct SlaveParameterTunerModel {
