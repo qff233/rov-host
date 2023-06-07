@@ -1,3 +1,6 @@
+pub mod video;
+pub mod async_glib;
+
 mod about;
 mod preferences;
 mod slave;
@@ -154,7 +157,12 @@ impl Component for AppModel {
         let prefermances_model = PreferencesModel::builder()
             .transient_for(root)
             .launch(())
-            .detach();
+            .forward(sender.input_sender(), |msg| {
+                use PreferencesToAppMsg::*;
+                match msg {
+                    SetColorScheme(scheme) => AppMsg::SetColorScheme(scheme),
+                }
+            });
         let model = AppModel {
             fullscreen: false,
             sync_recording: Some(false),

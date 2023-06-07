@@ -5,7 +5,7 @@ use adw::{
 
 use derivative::Derivative;
 use relm4::{
-    gtk::{Align, Entry, Inhibit, Label, SpinButton, StringList, Switch},
+    gtk::{gdk, glib, Align, Entry, Inhibit, Label, SpinButton, StringList, Switch},
     prelude::*,
     ComponentParts, SimpleComponent,
 };
@@ -101,17 +101,17 @@ pub struct PreferencesModel {
 pub enum PreferencesMsg {
     SetVideoSavePath(PathBuf),
     SetImageSavePath(PathBuf),
-    // SetImageSaveFormat(ImageFormat),
     SetInitialSlaveNum(u8),
     SetInputSendingRate(u16),
     SetParamTunerGraphViewUpdateInterval(u16),
     SetDefaultKeepVideoDisplayRatio(bool),
+    // SetImageSaveFormat(ImageFormat),
     // SetDefaultVideoDecoderCodec(VideoCodec),
     // SetDefaultVideoDecoderCodecProvider(VideoCodecProvider),
     // SetDefaultVideoEncoderCodec(VideoCodec),
     // SetDefaultVideoEncoderCodecProvider(VideoCodecProvider),
-    SetParameterTunerGraphViewPointNumberLimit(u16),
     // SetDefaultColorspaceConversion(ColorspaceConversion),
+    SetParameterTunerGraphViewPointNumberLimit(u16),
     SetDefaultReencodeRecordingVideo(bool),
     SetDefaultUseDecodebin(bool),
     SetDefaultAppSinkQueueLeakyEnabled(bool),
@@ -127,6 +127,11 @@ pub enum PreferencesMsg {
     OpenImageDirectory,
     Show,
     Hidden,
+}
+
+#[derive(Debug)]
+pub enum PreferencesToAppMsg {
+    SetColorScheme(AppColorScheme),
 }
 
 impl PreferencesModel {
@@ -145,7 +150,7 @@ impl PreferencesModel {
 impl SimpleComponent for PreferencesModel {
     type Init = ();
     type Input = PreferencesMsg;
-    type Output = ();
+    type Output = PreferencesToAppMsg;
 
     view! {
         PreferencesWindow {
@@ -588,34 +593,75 @@ impl SimpleComponent for PreferencesModel {
         use PreferencesMsg::*;
         self.reset();
         match message {
-            SetVideoSavePath(PathBuf) => {}
-            SetImageSavePath(PathBuf) => {}
-            // SetImageSaveFormat(ImageFormat) => {}
-            SetInitialSlaveNum(u8) => {}
-            SetInputSendingRate(u16) => {}
-            SetParamTunerGraphViewUpdateInterval(u16) => {}
-            SetDefaultKeepVideoDisplayRatio(bool) => {}
+            SetVideoSavePath(path) => self.set_video_save_path(path),
+            SetImageSavePath(path) => self.set_image_save_path(path),
+            SetInitialSlaveNum(num) => self.set_initial_slave_num(num),
+            SetInputSendingRate(rate) => self.set_default_input_sending_rate(rate),
+            SetParamTunerGraphViewUpdateInterval(interval) => {
+                self.set_param_tuner_graph_view_update_interval(interval)
+            }
+            SetDefaultKeepVideoDisplayRatio(val) => self.set_default_keep_video_display_ratio(val),
+            SetParameterTunerGraphViewPointNumberLimit(limit) => {
+                self.set_param_tuner_graph_view_point_num_limit(limit)
+            }
+            SetDefaultAppSinkQueueLeakyEnabled(val) => {
+                self.set_default_appsink_queue_leaky_enabled(val)
+            }
+            SetVideoSyncRecordUseSeparateDirectory(val) => {
+                self.set_video_sync_record_use_separate_directory(val)
+            }
+            SetDefaultVideoLatency(val) => self.set_default_video_latency(val),
+            SetDefaultVideoUrl(url) => self.default_video_url = url, // 放置光标移动到最前面
+            SetDefaultSlaveUrl(url) => self.default_slave_url = url,
+            SetDefaultReencodeRecordingVideo(val) => {
+                if !val {
+                    self.set_default_use_decodebin(false);
+                }
+                self.set_default_reencode_recording_video(val)
+            }
+            SetDefaultUseDecodebin(val) => {
+                if val {
+                    self.set_default_reencode_recording_video(true);
+                }
+                self.set_default_use_decodebin(val);
+            }
+            SetPipelineTimeout(timeout) => self.set_pipeline_timeout(timeout),
+            SetApplicationColorScheme(scheme) => {
+                if let Some(scheme) = scheme {
+                    sender
+                        .output(PreferencesToAppMsg::SetColorScheme(scheme))
+                        .unwrap();
+                };
+            }
+            SetDefaultStatusInfoUpdateInterval(interval) => {
+                self.set_default_status_info_update_interval(interval)
+            }
+            SaveToFile => serde_json::to_string_pretty(&self)
+                .ok()
+                .and_then(|json| fs::write(get_preference_path(), json).ok())
+                .expect("配置写入文件失败！"),
+            OpenVideoDirectory => gtk::show_uri(
+                None as Option<&PreferencesWindow>,
+                glib::filename_to_uri(self.get_video_save_path().to_str().unwrap(), None)
+                    .unwrap()
+                    .as_str(),
+                gdk::CURRENT_TIME,
+            ),
+            OpenImageDirectory => gtk::show_uri(
+                None as Option<&PreferencesWindow>,
+                glib::filename_to_uri(self.get_image_save_path().to_str().unwrap(), None)
+                    .unwrap()
+                    .as_str(),
+                gdk::CURRENT_TIME,
+            ),
+            Show => self.set_is_show(true),
+            Hidden => self.set_is_show(false),
+            // SetDefaultColorspaceConversion(ColorspaceConversion) => {}
             // SetDefaultVideoDecoderCodec(VideoCodec) => {}
             // SetDefaultVideoDecoderCodecProvider(VideoCodecProvider) => {}
             // SetDefaultVideoEncoderCodec(VideoCodec) => {}
+            // SetImageSaveFormat(ImageFormat) => {}
             // SetDefaultVideoEncoderCodecProvider(VideoCodecProvider) => {}
-            SetParameterTunerGraphViewPointNumberLimit(u16) => {}
-            // SetDefaultColorspaceConversion(ColorspaceConversion) => {}
-            SetDefaultReencodeRecordingVideo(bool) => {}
-            SetDefaultUseDecodebin(bool) => {}
-            SetDefaultAppSinkQueueLeakyEnabled(bool) => {}
-            SetVideoSyncRecordUseSeparateDirectory(bool) => {}
-            SetDefaultVideoLatency(u32) => {}
-            SetDefaultVideoUrl(Url) => {}
-            SetDefaultSlaveUrl(Url) => {}
-            SetPipelineTimeout(Duration) => {}
-            SetApplicationColorScheme(scheme) => {}
-            SetDefaultStatusInfoUpdateInterval(u16) => {}
-            SaveToFile => {}
-            OpenVideoDirectory => {}
-            OpenImageDirectory => {}
-            Show => self.set_is_show(true),
-            Hidde => self.set_is_show(false),
         }
     }
 }
