@@ -1,4 +1,8 @@
-use adw::{prelude::*, CenteringPolicy, HeaderBar, StatusPage};
+mod about;
+mod preferences;
+mod slave;
+
+use adw::{prelude::*, CenteringPolicy, ColorScheme, HeaderBar, StatusPage, StyleManager};
 use relm4::{
     actions::{RelmAction, RelmActionGroup},
     factory::FactoryVecDeque,
@@ -10,11 +14,11 @@ use relm4::{
     prelude::*,
     Component, ComponentParts, RelmApp,
 };
-
-pub mod about;
-pub mod slave;
+use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 use about::*;
+use preferences::*;
 use slave::SlaveModel;
 
 #[tracker::track]
@@ -25,6 +29,8 @@ struct AppModel {
     slaves: FactoryVecDeque<SlaveModel>,
     #[no_eq]
     about_model: Controller<AboutModel>,
+    #[no_eq]
+    prefermances_model: Controller<PreferencesModel>,
 }
 
 new_action_group!(AppActionGroup, "main");
@@ -96,7 +102,7 @@ impl Component for AppModel {
                     pack_end = &Button {
                         set_icon_name: "list-remove-symbolic",
                         set_tooltip_text: Some("移除机位"),
-                        #[track = "model.changed(AppModel::sync_recording())"]
+                        #[track = "model.changed(AppModel::sync_recording()) || model.changed(AppModel::slaves())"]
                         set_sensitive: model.get_slaves().len() > 0 && *model.get_sync_recording() ==  Some(false),
                         connect_clicked[sender] => move |_| {
                             sender.input(AppMsg::RemoveLastSlave);
@@ -145,12 +151,16 @@ impl Component for AppModel {
             .transient_for(root)
             .launch(())
             .detach();
-
+        let prefermances_model = PreferencesModel::builder()
+            .transient_for(root)
+            .launch(())
+            .detach();
         let model = AppModel {
             fullscreen: false,
             sync_recording: Some(false),
             slaves: FactoryVecDeque::new(Grid::default(), sender.input_sender()),
             about_model,
+            prefermances_model,
             tracker: 0,
         };
 
@@ -185,22 +195,40 @@ impl Component for AppModel {
 
         use AppMsg::*;
         match message {
-            RemoveLastSlave => if let Some(_slave) = self.get_slaves().iter().last() {},
+            RemoveLastSlave => {
+                let len = self.get_mut_slaves().len();
+                if len > 0 {
+                    self.get_mut_slaves().guard().remove(len - 1);
+                }
+            }
             NewSlave => {
                 self.get_mut_slaves().guard().push_back(());
             }
-            DestroySlave(_slave_ptr) => {}
+            DestroySlave(index) => {
+                let len = self.get_mut_slaves().len();
+                if index < len {
+                    self.get_mut_slaves().guard().remove(index);
+                }
+            }
             SetFullscreened(val) => self.set_fullscreen(val),
             OpenAboutDialog => self.about_model.sender().send(AboutMsg::Show).unwrap(),
-            OpenPreferencesWindow => {}
+            OpenPreferencesWindow => self
+                .prefermances_model
+                .sender()
+                .send(PreferencesMsg::Show)
+                .unwrap(),
             StopInputSystem => {}
-            SetColorScheme(_scheme) => {}
+            SetColorScheme(scheme) => StyleManager::default().set_color_scheme(match scheme {
+                AppColorScheme::FollowSystem => ColorScheme::Default,
+                AppColorScheme::Light => ColorScheme::ForceLight,
+                AppColorScheme::Dark => ColorScheme::ForceDark,
+            }),
             ToggleSyncRecording => {}
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(EnumIter, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AppColorScheme {
     FollowSystem,
     Light,
@@ -228,7 +256,7 @@ impl Default for AppColorScheme {
 pub enum AppMsg {
     NewSlave,
     RemoveLastSlave,
-    DestroySlave(*const SlaveModel),
+    DestroySlave(usize),
     // DispatchInputEvent(InputEvent),
     // PreferencesUpdated(PreferencesModel),
     SetColorScheme(AppColorScheme),
