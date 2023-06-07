@@ -1,10 +1,12 @@
-use std::sync::{Arc, Mutex};
-
-use once_cell::sync::OnceCell;
-use relm4::gtk::{
-    glib,
-    glib::{clone, Continue, MainContext, Sender},
+use relm4::{
+    gtk::{
+        glib,
+        glib::{clone, Continue, MainContext, Sender},
+    },
+    once_cell::sync::OnceCell,
 };
+use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 
 pub struct Future<T>
 where
@@ -132,6 +134,15 @@ where
 {
     sender: Sender<Arc<T>>,
     future: Future<T>,
+}
+
+impl<T> Debug for Promise<T>
+where
+    T: Send + Sync,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 impl<T> Promise<T>

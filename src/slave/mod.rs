@@ -1,6 +1,11 @@
+mod async_glib;
 mod config;
+mod video;
+
+pub mod video_ex;
 
 use adw::{prelude::*, ToastOverlay};
+
 use relm4::{
     factory::{positions::GridPosition, Position},
     gtk::{
@@ -16,6 +21,10 @@ use crate::AppMsg;
 pub struct SlaveModel {
     connected: Option<bool>,
     recording: Option<bool>,
+    // #[no_eq]
+    // video_model: Controller<SlaveVideoModel>,
+    // #[no_eq]
+    // config : Controller<SlaveConfigModel>
 }
 
 #[derive(Debug)]
@@ -131,9 +140,10 @@ impl FactoryComponent for SlaveModel {
                         set_hexpand: true,
                         set_halign: Align::Center,
                         set_spacing: 5,
-                        append = &Label {
-                            // set_text: track!(model.changed(SlaveModel::config()), model.config.model().get_slave_url().to_string().as_str()),
-                        },
+                        // append = &Label {
+                        //     #[track = "self.changed(SlaveModel::config())"]
+                        //     set_text: self.config.model().get_slave_url().to_string().as_str(),
+                        // },
                         append = &MenuButton {
                             set_icon_name: "input-gaming-symbolic",
                             set_css_classes: &["circular"],
@@ -162,7 +172,9 @@ impl FactoryComponent for SlaveModel {
                                         },
                                     },
                                     append = &Frame {
-                                        // set_child: track!(model.changed(SlaveModel::input_system()), Some(&input_sources_list_box(&model.input_sources, &model.input_system ,&sender))),
+                                        // #[track = "model.changed(SlaveModel::input_system())"]
+                                        // #[wrap(Some)]
+                                        // set_child: &input_sources_list_box(&model.input_sources, &model.input_system ,&sender),
                                     },
 
                                 },
@@ -217,9 +229,13 @@ impl FactoryComponent for SlaveModel {
     }
 
     fn init_model(_value: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
+        // let video_model = SlaveVideoModel::builder()
+        //     .launch(SlaveVideoInit {})
+        //     .detach();
         Self {
             connected: Some(false),
             recording: None,
+            // video_model,
             tracker: 0,
         }
     }

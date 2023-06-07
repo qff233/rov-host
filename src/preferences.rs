@@ -14,7 +14,13 @@ use std::{fs, path::PathBuf, str::FromStr, time::Duration};
 use strum::IntoEnumIterator;
 use url::Url;
 
-use crate::AppColorScheme;
+use crate::{
+    slave::video_ex::{
+        ColorspaceConversion, ImageFormat, VideoCodec, VideoCodecProvider, VideoDecoder,
+        VideoEncoder,
+    },
+    AppColorScheme,
+};
 
 pub fn get_data_path() -> PathBuf {
     const APP_DIR_NAME: &str = "rovhost";
@@ -51,7 +57,7 @@ pub fn get_image_path() -> PathBuf {
 }
 
 #[tracker::track]
-#[derive(Debug, Derivative, Serialize, Deserialize)]
+#[derive(Debug, Derivative, PartialEq, Serialize, Deserialize)]
 #[derivative(Default)]
 pub struct PreferencesModel {
     #[derivative(Default(value = "1"))]
@@ -61,10 +67,10 @@ pub struct PreferencesModel {
     pub video_save_path: PathBuf,
     #[derivative(Default(value = "get_image_path()"))]
     pub image_save_path: PathBuf,
-    // #[derivative(Default(value = "ImageFormat::JPEG"))]
-    // pub image_save_format: ImageFormat,
+    #[derivative(Default(value = "ImageFormat::JPEG"))]
+    pub image_save_format: ImageFormat,
     pub default_reencode_recording_video: bool,
-    // pub default_video_encoder: VideoEncoder,
+    pub default_video_encoder: VideoEncoder,
     #[derivative(Default(value = "Url::from_str(\"http://192.168.137.219:8888\").unwrap()"))]
     pub default_slave_url: Url,
     #[derivative(Default(
@@ -75,8 +81,8 @@ pub struct PreferencesModel {
     pub default_input_sending_rate: u16,
     #[derivative(Default(value = "true"))]
     pub default_keep_video_display_ratio: bool,
-    // pub default_video_decoder: VideoDecoder,
-    // pub default_colorspace_conversion: ColorspaceConversion,
+    pub default_video_decoder: VideoDecoder,
+    pub default_colorspace_conversion: ColorspaceConversion,
     #[derivative(Default(value = "64"))]
     pub param_tuner_graph_view_point_num_limit: u16,
     #[derivative(Default(value = "250"))]
@@ -105,12 +111,12 @@ pub enum PreferencesMsg {
     SetInputSendingRate(u16),
     SetParamTunerGraphViewUpdateInterval(u16),
     SetDefaultKeepVideoDisplayRatio(bool),
-    // SetImageSaveFormat(ImageFormat),
-    // SetDefaultVideoDecoderCodec(VideoCodec),
-    // SetDefaultVideoDecoderCodecProvider(VideoCodecProvider),
-    // SetDefaultVideoEncoderCodec(VideoCodec),
-    // SetDefaultVideoEncoderCodecProvider(VideoCodecProvider),
-    // SetDefaultColorspaceConversion(ColorspaceConversion),
+    SetImageSaveFormat(ImageFormat),
+    SetDefaultVideoDecoderCodec(VideoCodec),
+    SetDefaultVideoDecoderCodecProvider(VideoCodecProvider),
+    SetDefaultVideoEncoderCodec(VideoCodec),
+    SetDefaultVideoEncoderCodecProvider(VideoCodecProvider),
+    SetDefaultColorspaceConversion(ColorspaceConversion),
     SetParameterTunerGraphViewPointNumberLimit(u16),
     SetDefaultReencodeRecordingVideo(bool),
     SetDefaultUseDecodebin(bool),
@@ -656,12 +662,18 @@ impl SimpleComponent for PreferencesModel {
             ),
             Show => self.set_is_show(true),
             Hidden => self.set_is_show(false),
-            // SetDefaultColorspaceConversion(ColorspaceConversion) => {}
-            // SetDefaultVideoDecoderCodec(VideoCodec) => {}
-            // SetDefaultVideoDecoderCodecProvider(VideoCodecProvider) => {}
-            // SetDefaultVideoEncoderCodec(VideoCodec) => {}
-            // SetImageSaveFormat(ImageFormat) => {}
-            // SetDefaultVideoEncoderCodecProvider(VideoCodecProvider) => {}
+            SetDefaultColorspaceConversion(conversion) => {
+                self.set_default_colorspace_conversion(conversion)
+            }
+            SetDefaultVideoDecoderCodec(codec) => self.get_mut_default_video_decoder().0 = codec,
+            SetDefaultVideoDecoderCodecProvider(provider) => {
+                self.get_mut_default_video_decoder().1 = provider
+            }
+            SetDefaultVideoEncoderCodec(codec) => self.get_mut_default_video_encoder().0 = codec,
+            SetDefaultVideoEncoderCodecProvider(provider) => {
+                self.get_mut_default_video_encoder().1 = provider
+            }
+            SetImageSaveFormat(format) => self.set_image_save_format(format),
         }
     }
 }

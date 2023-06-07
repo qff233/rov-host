@@ -1,6 +1,3 @@
-pub mod video;
-pub mod async_glib;
-
 mod about;
 mod preferences;
 mod slave;
@@ -189,7 +186,6 @@ impl Component for AppModel {
             app_group.add_action(action_about);
         }
         root.insert_action_group("main", Some(&app_group.into_action_group()));
-
         ComponentParts { model, widgets }
     }
 
@@ -276,10 +272,10 @@ pub enum AppMsg {
 }
 
 fn main() {
-    // gst::init().expect("无法初始化 GStreamer");
+    gst::init().expect("无法初始化 GStreamer");
     // let model = AppModel {
     //     preferences: Rc::new(RefCell::new(PreferencesModel::load_or_default())),
-    //     ..Default::default()
+    //
     // };
     // model.input_system.run();
     let app = RelmApp::new("org.jmu-stu.rov-host");

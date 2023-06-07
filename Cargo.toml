@@ -4,11 +4,9 @@ version = "2.0.0"
 edition = "2021"
 
 [dependencies]
-gtk="0.17"
-relm4 = "0.6"
+relm4 = {version = "0.6.0", features = ["all"]}
 relm4-components = "0.6.0"
 relm4-icons = { version = "0.6.0", features = ["plus"] }
-adw = { package = "libadwaita", version = "0.4" }
 
 tracker = "0.2"
 url = { version = "2", features = ["serde"] }
@@ -22,4 +20,3 @@ derivative = "2.2"
 opencv = { version = "0.82", default-features = false, features = ["imgproc"] }
 gst = { package = "gstreamer", version = "0.20" }
 gst-app = { package = "gstreamer-app", version = "0.20", features = ["v1_22"] }
-once_cell = "1.9"
