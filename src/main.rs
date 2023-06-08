@@ -1,6 +1,9 @@
 mod about;
 mod preferences;
 mod slave;
+mod ui;
+
+use std::rc::Rc;
 
 use adw::{prelude::*, CenteringPolicy, ColorScheme, HeaderBar, StatusPage, StyleManager};
 use relm4::{
@@ -21,15 +24,17 @@ use about::*;
 use preferences::*;
 use slave::SlaveModel;
 
+use crate::slave::SlaveInput;
+
 #[tracker::track]
 struct AppModel {
     sync_recording: Option<bool>,
-    fullscreen: bool,
+    is_fullscreen: bool,
     #[no_eq]
     slaves: FactoryVecDeque<SlaveModel>,
-    #[no_eq]
+    #[do_not_track]
     about_model: Controller<AboutModel>,
-    #[no_eq]
+    #[do_not_track]
     prefermances_model: Controller<PreferencesModel>,
 }
 
@@ -38,11 +43,10 @@ new_stateless_action!(PreferencesAction, AppActionGroup, "preferences");
 new_stateless_action!(AboutDialogAction, AppActionGroup, "about");
 
 #[relm4::component]
-impl Component for AppModel {
+impl SimpleComponent for AppModel {
     type Init = ();
     type Input = AppMsg;
     type Output = ();
-    type CommandOutput = ();
 
     view! {
         adw::ApplicationWindow {
@@ -50,8 +54,8 @@ impl Component for AppModel {
             set_default_width: 1280,
             set_default_height: 720,
             set_icon_name: Some("input-gaming"),
-            #[track = "model.changed(AppModel::fullscreen())"]
-            set_fullscreened: *model.get_fullscreen(),
+            #[track = "model.changed(AppModel::is_fullscreen())"]
+            set_fullscreened: *model.get_is_fullscreen(),
             connect_close_request[sender] => move |_| {
                 sender.input(AppMsg::StopInputSystem);
                 Inhibit(false)
@@ -78,7 +82,7 @@ impl Component for AppModel {
                             },
                         },
                         #[track = "model.changed(AppModel::slaves())"]
-                        set_visible: model.slaves.len() > 1,
+                        set_visible: model.get_slaves().len() > 1,
                         connect_clicked[sender] => move |_| {
                             sender.input(AppMsg::ToggleSyncRecording);
                         }
@@ -92,8 +96,8 @@ impl Component for AppModel {
                     pack_end = &ToggleButton {
                         set_icon_name: "view-fullscreen-symbolic",
                         set_tooltip_text: Some("切换全屏模式"),
-                        #[track = "model.changed(AppModel::fullscreen())"]
-                        set_active: *model.get_fullscreen(),
+                        #[track = "model.changed(AppModel::is_fullscreen())"]
+                        set_active: *model.get_is_fullscreen(),
                         connect_clicked[sender] => move |button| {
                             sender.input(AppMsg::SetFullscreened(button.is_active()));
                         }
@@ -127,7 +131,7 @@ impl Component for AppModel {
                         set_title: "无机位",
                         set_description: Some("请点击标题栏右侧按钮添加机位"),
                         #[track = "model.changed(AppModel::slaves())"]
-                        set_visible: model.get_slaves().len() == 0
+                        set_visible: model.get_slaves().len() == 0,
                     },
                     add_child: slave
                 }
@@ -160,8 +164,9 @@ impl Component for AppModel {
                     SetColorScheme(scheme) => AppMsg::SetColorScheme(scheme),
                 }
             });
+
         let model = AppModel {
-            fullscreen: false,
+            is_fullscreen: false,
             sync_recording: Some(false),
             slaves: FactoryVecDeque::new(Grid::default(), sender.input_sender()),
             about_model,
@@ -189,24 +194,20 @@ impl Component for AppModel {
         ComponentParts { model, widgets }
     }
 
-    fn update(
-        &mut self,
-        message: Self::Input,
-        _sender: relm4::ComponentSender<Self>,
-        _root: &Self::Root,
-    ) {
+    fn update(&mut self, message: Self::Input, _sender: relm4::ComponentSender<Self>) {
         self.reset();
 
         use AppMsg::*;
         match message {
             RemoveLastSlave => {
-                let len = self.get_mut_slaves().len();
-                if len > 0 {
-                    self.get_mut_slaves().guard().remove(len - 1);
-                }
+                let index = self.get_mut_slaves().len() - 1;
+                self.get_mut_slaves().guard().remove(index);
+                // println!("{}", self.changed(AppModel::slaves()));  ！！删除到0时 显示不了StatusPage!
+                // println!("{}", self.get_slaves().len());
             }
             NewSlave => {
-                self.get_mut_slaves().guard().push_back(());
+                let preference = self.prefermances_model.model().clone();
+                self.get_mut_slaves().guard().push_back(Rc::new(preference));
             }
             DestroySlave(index) => {
                 let len = self.get_mut_slaves().len();
@@ -214,7 +215,7 @@ impl Component for AppModel {
                     self.get_mut_slaves().guard().remove(index);
                 }
             }
-            SetFullscreened(val) => self.set_fullscreen(val),
+            SetFullscreened(val) => self.set_is_fullscreen(val),
             OpenAboutDialog => self.about_model.sender().send(AboutMsg::Show).unwrap(),
             OpenPreferencesWindow => self
                 .prefermances_model
@@ -228,6 +229,12 @@ impl Component for AppModel {
                 AppColorScheme::Dark => ColorScheme::ForceDark,
             }),
             ToggleSyncRecording => {}
+            PreferencesUpdated(preference) => {
+                for i in 0..self.slaves.len() {
+                    self.slaves
+                        .send(i, SlaveInput::ConfigUpdated(preference.clone()));
+                }
+            }
         }
     }
 }
@@ -262,7 +269,7 @@ pub enum AppMsg {
     RemoveLastSlave,
     DestroySlave(usize),
     // DispatchInputEvent(InputEvent),
-    // PreferencesUpdated(PreferencesModel),
+    PreferencesUpdated(PreferencesModel),
     SetColorScheme(AppColorScheme),
     ToggleSyncRecording,
     SetFullscreened(bool),

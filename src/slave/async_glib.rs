@@ -53,9 +53,10 @@ where
         future
     }
 
-    pub fn sequence<I: Iterator<Item = Future<T>> + Send + 'static>(
-        iter: I,
-    ) -> Future<Vec<Arc<T>>> {
+    pub fn sequence<I>(iter: I) -> Future<Vec<Arc<T>>>
+    where
+        I: Iterator<Item = Future<T>> + Send + 'static,
+    {
         let seq: Arc<Mutex<Option<Vec<Arc<T>>>>> = Arc::new(Mutex::new(Some(Vec::new())));
         let next: Arc<OnceCell<Box<dyn (Fn(I) -> Future<Vec<Arc<T>>>) + Send + Sync>>> =
             Default::default();
@@ -140,7 +141,7 @@ impl<T> Debug for Promise<T>
 where
     T: Send + Sync,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 }

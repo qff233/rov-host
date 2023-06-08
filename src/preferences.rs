@@ -15,7 +15,7 @@ use strum::IntoEnumIterator;
 use url::Url;
 
 use crate::{
-    slave::video_ex::{
+    slave::video_ext::{
         ColorspaceConversion, ImageFormat, VideoCodec, VideoCodecProvider, VideoDecoder,
         VideoEncoder,
     },
@@ -57,7 +57,7 @@ pub fn get_image_path() -> PathBuf {
 }
 
 #[tracker::track]
-#[derive(Debug, Derivative, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Derivative, PartialEq, Serialize, Deserialize, Clone)]
 #[derivative(Default)]
 pub struct PreferencesModel {
     #[derivative(Default(value = "1"))]
@@ -69,6 +69,7 @@ pub struct PreferencesModel {
     pub image_save_path: PathBuf,
     #[derivative(Default(value = "ImageFormat::JPEG"))]
     pub image_save_format: ImageFormat,
+    #[derivative(Default(value = "false"))]
     pub default_reencode_recording_video: bool,
     pub default_video_encoder: VideoEncoder,
     #[derivative(Default(value = "Url::from_str(\"http://192.168.137.219:8888\").unwrap()"))]

@@ -1,20 +1,36 @@
-use std::{str::FromStr, sync::{Arc, Mutex}, ffi::c_void};
+use std::{
+    ffi::c_void,
+    rc::Rc,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
-use relm4::gtk::{prelude::*, glib::{Sender, clone, EnumClass}, gdk_pixbuf::{Colorspace, Pixbuf}};
-use gst::{Element, Pad, PadProbeType, Pipeline, element_error, prelude::*, PadProbeReturn, PadProbeData, EventView};
-use opencv as cv;
+use cv::{core::Size, imgproc, prelude::*, Result};
 use cv::{core::VecN, types::VectorOfMat};
-use cv::{prelude::*, Result, imgproc, core::Size};
-use serde::{Serialize, Deserialize};
-use strum_macros::{EnumIter, Display as EnumToString};
+use gst::{
+    element_error, prelude::*, Element, EventView, Pad, PadProbeData, PadProbeReturn, PadProbeType,
+    Pipeline,
+};
+use opencv as cv;
+use relm4::gtk::{
+    gdk_pixbuf::{Colorspace, Pixbuf},
+    glib::{clone, EnumClass, Sender},
+};
+use serde::{Deserialize, Serialize};
+use strum_macros::{Display as EnumToString, EnumIter};
 use url::Url;
 
-use super::{async_glib::{Future, Promise}, config::SlaveConfigModel};
-
+use super::{
+    async_glib::{Future, Promise},
+    config::SlaveConfigModel,
+};
 
 #[derive(EnumIter, EnumToString, PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ImageFormat {
-    JPEG, PNG, TIFF, BMP
+    JPEG,
+    PNG,
+    TIFF,
+    BMP,
 }
 
 impl ImageFormat {
@@ -24,7 +40,7 @@ impl ImageFormat {
             "png" => Some(ImageFormat::PNG),
             "tiff" => Some(ImageFormat::TIFF),
             "bmp" => Some(ImageFormat::BMP),
-            _ => None, 
+            _ => None,
         }
     }
     pub fn extension(&self) -> &'static str {
@@ -38,7 +54,9 @@ impl ImageFormat {
 }
 
 pub enum VideoSource {
-    RTP(Url), UDP(Url), RTSP(Url)
+    RTP(Url),
+    UDP(Url),
+    RTSP(Url),
 }
 
 impl VideoSource {
@@ -47,11 +65,15 @@ impl VideoSource {
             "rtp" => Some(Self::RTP(url.clone())),
             "udp" => Some(Self::UDP(url.clone())),
             "rtsp" => Some(Self::RTSP(url.clone())),
-            _ => None
+            _ => None,
         }
     }
-    
-    fn gst_src_elements(&self, latency: u32, video_decoder: &VideoDecoder) -> Result<Vec<Element>, String> {
+
+    fn gst_src_elements(
+        &self,
+        latency: u32,
+        video_decoder: &VideoDecoder,
+    ) -> Result<Vec<Element>, String> {
         let mut elements = Vec::new();
         match self {
             VideoSource::UDP(url) | VideoSource::RTP(url) => {
@@ -60,11 +82,12 @@ impl VideoSource {
                     .property("address", url.host_str().ok_or("url-host error")?)
                     .property("port", url.port().ok_or("port error")? as i32)
                     .build()
-                    .map_err(|_|"create udpsrc error")?;
+                    .map_err(|_| "create udpsrc error")?;
 
-                if let VideoSource::RTP(_) = self { 
-                    let caps_src = gst::caps::Caps::from_str("application/x-rtp, media=(string)video")
-                        .map_err(|_| "Cannot create capability for udpsrc")?;
+                if let VideoSource::RTP(_) = self {
+                    let caps_src =
+                        gst::caps::Caps::from_str("application/x-rtp, media=(string)video")
+                            .map_err(|_| "Cannot create capability for udpsrc")?;
                     udpsrc.set_property("caps", caps_src);
                 }
                 elements.push(udpsrc);
@@ -76,18 +99,18 @@ impl VideoSource {
                         .map_err(|_| "Missing element: rtpjitterbuffer")?;
                     elements.push(rtpjitterbuffer);
                 }
-            },
+            }
             VideoSource::RTSP(url) => {
                 let rtspsrc = gst::ElementFactory::make("rtspsrc")
                     .name("source")
                     .property("location", url.to_string())
                     .property("user-id", url.username())
-                    .property("user-pw",  url.password().ok_or("password error")?)
+                    .property("user-pw", url.password().ok_or("password error")?)
                     .property("latency", latency)
                     .build()
                     .map_err(|_| "Missing element: rtspsrc")?;
                 elements.push(rtspsrc);
-            },
+            }
         }
         match self {
             VideoSource::RTSP(_) | VideoSource::RTP(_) => {
@@ -96,7 +119,7 @@ impl VideoSource {
                     .build()
                     .map_err(|_| format!("Missing element: {}", video_decoder.0.depay_name()))?;
                 elements.push(depay);
-            },
+            }
             _ => (),
         }
         Ok(elements)
@@ -105,7 +128,7 @@ impl VideoSource {
 
 #[derive(EnumIter, EnumToString, PartialEq, Clone, Debug)]
 pub enum VideoAlgorithm {
-    CLAHE
+    CLAHE,
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
@@ -113,7 +136,11 @@ pub struct VideoEncoder(pub VideoCodec, pub VideoCodecProvider);
 
 #[derive(EnumIter, PartialEq, Clone, Debug, Serialize, Deserialize, Copy)]
 pub enum VideoCodec {
-    H264, H265, VP8, VP9, AV1
+    H264,
+    H265,
+    VP8,
+    VP9,
+    AV1,
 }
 
 impl ToString for VideoCodec {
@@ -124,7 +151,8 @@ impl ToString for VideoCodec {
             VideoCodec::VP8 => "VP8",
             VideoCodec::VP9 => "VP9",
             VideoCodec::AV1 => "AV1",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -143,10 +171,14 @@ impl VideoCodec {
         format!("rtp{}depay", self.name())
     }
 }
-    
+
 #[derive(EnumIter, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum VideoCodecProvider {
-    Native, AVCodec, NVCodec, VAAPI, D3D11
+    Native,
+    AVCodec,
+    NVCodec,
+    VAAPI,
+    D3D11,
 }
 
 impl ToString for VideoCodecProvider {
@@ -157,7 +189,8 @@ impl ToString for VideoCodecProvider {
             VideoCodecProvider::NVCodec => "NVIDIA (硬件)",
             VideoCodecProvider::VAAPI => "VAAPI (硬件)",
             VideoCodecProvider::D3D11 => "Direct3D 11 (硬件)",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -179,7 +212,11 @@ impl VideoCodecProvider {
 }
 
 impl VideoEncoder {
-    pub fn gst_record_elements(&self, colorspace_conversion: ColorspaceConversion, filename: &str) -> Result<Vec<Element>, String> {
+    pub fn gst_record_elements(
+        &self,
+        colorspace_conversion: ColorspaceConversion,
+        filename: &str,
+    ) -> Result<Vec<Element>, String> {
         let mut elements = Vec::new();
         let queue_to_file = gst::ElementFactory::make("queue")
             .build()
@@ -197,13 +234,13 @@ impl VideoEncoder {
                     .build()
                     .map_err(|_| "Missing element: h264parse")?;
                 elements.push(h264parse);
-            },
+            }
             VideoCodec::H265 => {
                 let h265parse = gst::ElementFactory::make("h265parse")
                     .build()
                     .map_err(|_| "Missing element: h265parse")?;
                 elements.push(h265parse);
-            },
+            }
             _ => (),
         };
         let matroskamux = gst::ElementFactory::make("matroskamux")
@@ -235,13 +272,13 @@ impl VideoDecoder {
                     .build()
                     .map_err(|_| "Missing element: h264parse")?;
                 elements.push(parse);
-            },
+            }
             VideoCodec::H265 => {
                 let parse = gst::ElementFactory::make("h265parse")
                     .build()
                     .map_err(|_| "Missing element: h265parse")?;
                 elements.push(parse);
-            },
+            }
             _ => (),
         }
         let matroskamux = gst::ElementFactory::make("matroskamux")
@@ -255,7 +292,7 @@ impl VideoDecoder {
         elements.push(filesink);
         Ok(elements)
     }
-    
+
     pub fn gst_main_elements(&self) -> Result<Vec<Element>, String> {
         let mut elements = Vec::new();
         match self.0 {
@@ -264,13 +301,13 @@ impl VideoDecoder {
                     .build()
                     .map_err(|_| "Missing element: h264parse")?;
                 elements.push(parse);
-            },
+            }
             VideoCodec::H265 => {
                 let parse = gst::ElementFactory::make("h265parse")
                     .build()
                     .map_err(|_| "Missing element: h265parse")?;
                 elements.push(parse);
-            },
+            }
             _ => (),
         }
         let decoder_name = self.1.format_codec(self.0, false);
@@ -285,7 +322,9 @@ impl VideoDecoder {
 
 #[derive(EnumIter, EnumToString, PartialEq, Clone, Debug, Serialize, Deserialize, Copy)]
 pub enum ColorspaceConversion {
-    CPU, CUDA, D3D11
+    CPU,
+    CUDA,
+    D3D11,
 }
 
 impl ColorspaceConversion {
@@ -332,23 +371,37 @@ impl Default for VideoDecoder {
 }
 
 impl Default for ColorspaceConversion {
-    fn default() -> Self { Self::CPU }
+    fn default() -> Self {
+        Self::CPU
+    }
 }
 
-pub fn connect_elements_to_pipeline(pipeline: &Pipeline, tee_name: &str, elements: &[Element]) -> Result<(Element, Pad), String> {
+pub fn connect_elements_to_pipeline(
+    pipeline: &Pipeline,
+    tee_name: &str,
+    elements: &[Element],
+) -> Result<(Element, Pad), String> {
     let output_tee = pipeline.by_name(tee_name).ok_or("Cannot find output_tee")?;
     if let Some(element) = elements.first() {
-        pipeline.add(element).map_err(|_| "Cannot add the first element to pipeline")?; // 必须先添加，再连接
+        pipeline
+            .add(element)
+            .map_err(|_| "Cannot add the first element to pipeline")?; // 必须先添加，再连接
     }
-    let teepad = output_tee.request_pad_simple("src_%u").ok_or("Cannot request pad")?;
+    let teepad = output_tee
+        .request_pad_simple("src_%u")
+        .ok_or("Cannot request pad")?;
     for elements in elements.windows(2) {
         if let [a, b] = elements {
-            pipeline.add(b).map_err(|_| "Cannot add elements to pipeline")?;
+            pipeline
+                .add(b)
+                .map_err(|_| "Cannot add elements to pipeline")?;
             a.link(b).map_err(|_| "Cannot link elements")?;
         }
     }
     let sinkpad = elements.first().unwrap().static_pad("sink").unwrap();
-    teepad.link(&sinkpad).map_err(|_| "Cannot link the pad of output tee to the pad of first element")?;
+    teepad
+        .link(&sinkpad)
+        .map_err(|_| "Cannot link the pad of output tee to the pad of first element")?;
     output_tee.sync_state_with_parent().unwrap();
     for element in elements {
         element.sync_state_with_parent().unwrap();
@@ -356,11 +409,25 @@ pub fn connect_elements_to_pipeline(pipeline: &Pipeline, tee_name: &str, element
     Ok((output_tee, teepad))
 }
 
-pub fn disconnect_elements_to_pipeline(pipeline: &Pipeline, (output_tee, teepad): &(Element, Pad), elements: &[Element]) -> Result<Future<()>, String> {
+pub fn disconnect_elements_to_pipeline(
+    pipeline: &Pipeline,
+    (output_tee, teepad): &(Element, Pad),
+    elements: &[Element],
+) -> Result<Future<()>, String> {
     let first_sinkpad = elements.first().unwrap().static_pad("sink").unwrap();
-    teepad.unlink(&first_sinkpad).map_err(|_| "Cannot unlink elements")?;
-    output_tee.remove_pad(teepad).map_err(|_| "Cannot remove pad from output tee")?;
-    let last_sinkpad = elements.last().unwrap().sink_pads().into_iter().next().unwrap();
+    teepad
+        .unlink(&first_sinkpad)
+        .map_err(|_| "Cannot unlink elements")?;
+    output_tee
+        .remove_pad(teepad)
+        .map_err(|_| "Cannot remove pad from output tee")?;
+    let last_sinkpad = elements
+        .last()
+        .unwrap()
+        .sink_pads()
+        .into_iter()
+        .next()
+        .unwrap();
     let elements = elements.to_vec();
     let promise = Promise::new();
     let future = promise.future();
@@ -374,28 +441,33 @@ pub fn disconnect_elements_to_pipeline(pipeline: &Pipeline, (output_tee, teepad)
                 } else {
                     PadProbeReturn::Pass
                 }
-            },
+            }
             _ => PadProbeReturn::Pass,
         }
     });
     first_sinkpad.send_event(gst::event::Eos::new());
     let future = future.map(clone!(@strong pipeline => move |_| {
-        pipeline.remove_many(&elements.iter().collect::<Vec<_>>()).map_err(|_| "Cannot remove elements from pipeline").unwrap();
-        for element in elements.iter() {
-            element.set_state(gst::State::Null).unwrap();
-        }
-    }));
+            pipeline.remove_many(&elements.iter().collect::<Vec<_>>()).map_err(|_| "Cannot remove elements from pipeline").unwrap();
+            for element in elements.iter() {
+                element.set_state(gst::State::Null).unwrap();
+            }
+        }));
     Ok(future)
 }
 
-pub fn create_decodebin_pipeline(source: VideoSource, appsink_queue_leaky_enabled: bool) -> Result<gst::Pipeline, String> {
+pub fn create_decodebin_pipeline(
+    source: VideoSource,
+    appsink_queue_leaky_enabled: bool,
+) -> Result<gst::Pipeline, String> {
     let pipeline = gst::Pipeline::new(None);
     let uridecodebin = gst::ElementFactory::make("uridecodebin3")
         .build()
         .map_err(|_| "Missing element: uridecodebin3")
-        .and(gst::ElementFactory::make("uridecodebin")
-                    .build()
-                    .map_err(|_| "Missing element: uridecodebin"))?;
+        .and(
+            gst::ElementFactory::make("uridecodebin")
+                .build()
+                .map_err(|_| "Missing element: uridecodebin"),
+        )?;
     let appsink = gst::ElementFactory::make("appsink")
         .name("display")
         .build()
@@ -404,22 +476,44 @@ pub fn create_decodebin_pipeline(source: VideoSource, appsink_queue_leaky_enable
         .map_err(|_| "Cannot create capability for appsink")?;
     let tee_decoded = gst::ElementFactory::make("tee")
         .name("tee_decoded")
-        .build().map_err(|_| "Missing element: tee")?;
+        .build()
+        .map_err(|_| "Missing element: tee")?;
     let queue_to_app = gst::ElementFactory::make("queue")
         .build()
         .map_err(|_| "Missing element: queue")?;
     let videoconvert = gst::ElementFactory::make("videoconvert")
         .build()
         .map_err(|_| "Missing element: videoconvert")?;
-    pipeline.add_many(&[&uridecodebin, &appsink, &tee_decoded, &queue_to_app, &videoconvert])
+    pipeline
+        .add_many(&[
+            &uridecodebin,
+            &appsink,
+            &tee_decoded,
+            &queue_to_app,
+            &videoconvert,
+        ])
         .map_err(|_| "Cannot create pipeline")?;
     if appsink_queue_leaky_enabled {
-        queue_to_app.set_property_from_value("leaky", &EnumClass::new(queue_to_app.property_type("leaky").unwrap()).unwrap().to_value(2).unwrap());
+        queue_to_app.set_property_from_value(
+            "leaky",
+            &EnumClass::new(queue_to_app.property_type("leaky").unwrap())
+                .unwrap()
+                .to_value(2)
+                .unwrap(),
+        );
     }
     appsink.set_property("caps", caps_app);
-    videoconvert.link(&appsink).map_err(|_| "Cannot link videoconvert to the appsink")?;
-    queue_to_app.link(&videoconvert).map_err(|_| "Cannot link appsink queue to the videoconvert")?;
-    tee_decoded.request_pad_simple("src_%u").unwrap().link(&queue_to_app.static_pad("sink").unwrap()).map_err(|_| "Cannot link tee to appsink queue")?;
+    videoconvert
+        .link(&appsink)
+        .map_err(|_| "Cannot link videoconvert to the appsink")?;
+    queue_to_app
+        .link(&videoconvert)
+        .map_err(|_| "Cannot link appsink queue to the videoconvert")?;
+    tee_decoded
+        .request_pad_simple("src_%u")
+        .unwrap()
+        .link(&queue_to_app.static_pad("sink").unwrap())
+        .map_err(|_| "Cannot link tee to appsink queue")?;
     let url = match &source {
         VideoSource::RTP(url) | VideoSource::UDP(url) | VideoSource::RTSP(url) => url,
     };
@@ -427,24 +521,33 @@ pub fn create_decodebin_pipeline(source: VideoSource, appsink_queue_leaky_enable
     uridecodebin.connect("pad-added", true, move |args| {
         if let [_element, pad] = args {
             let pad = pad.get::<Pad>().unwrap();
-            let media = pad.caps().unwrap().iter().flat_map(|x| x.iter()).find_map(|(key, value)| {
-                if key == "media" {
-                    Some(value.get::<String>().unwrap())
-                } else {
-                    None
-                }
-            });
+            let media =
+                pad.caps()
+                    .unwrap()
+                    .iter()
+                    .flat_map(|x| x.iter())
+                    .find_map(|(key, value)| {
+                        if key == "media" {
+                            Some(value.get::<String>().unwrap())
+                        } else {
+                            None
+                        }
+                    });
             let video_sink_pad = tee_decoded.static_pad("sink").unwrap();
             match media.as_deref() {
                 Some("video") => {
-                    pad.link(&video_sink_pad).map_err(|_| "Cannot delay link uridecodebin to tee_decoded").unwrap();
-                },
-                Some("audio") => {},
+                    pad.link(&video_sink_pad)
+                        .map_err(|_| "Cannot delay link uridecodebin to tee_decoded")
+                        .unwrap();
+                }
+                Some("audio") => {}
                 Some(_) | None => {
                     if pad.can_link(&video_sink_pad) {
-                        pad.link(&video_sink_pad).map_err(|_| "Cannot delay link uridecodebin to tee_decoded").unwrap();
+                        pad.link(&video_sink_pad)
+                            .map_err(|_| "Cannot delay link uridecodebin to tee_decoded")
+                            .unwrap();
                     }
-                },
+                }
             }
         }
         None
@@ -452,10 +555,18 @@ pub fn create_decodebin_pipeline(source: VideoSource, appsink_queue_leaky_enable
     Ok(pipeline)
 }
 
-pub fn create_pipeline(source: VideoSource, latency: u32, colorspace_conversion: ColorspaceConversion, decoder: VideoDecoder, appsink_queue_leaky_enabled: bool) -> Result<gst::Pipeline, String> {
+pub fn create_pipeline(
+    source: VideoSource,
+    latency: u32,
+    colorspace_conversion: ColorspaceConversion,
+    decoder: VideoDecoder,
+    appsink_queue_leaky_enabled: bool,
+) -> Result<gst::Pipeline, String> {
     let pipeline = gst::Pipeline::new(None);
     let src_elements = source.gst_src_elements(latency, &decoder)?;
-    let (video_src, depay_elements) = src_elements.split_first().ok_or_else(|| "Source element is empty")?;
+    let (video_src, depay_elements) = src_elements
+        .split_first()
+        .ok_or_else(|| "Source element is empty")?;
     let video_src = video_src.clone();
     let appsink = gst::ElementFactory::make("appsink")
         .name("display")
@@ -480,59 +591,98 @@ pub fn create_pipeline(source: VideoSource, latency: u32, colorspace_conversion:
         .map_err(|_| "Missing element: queue")?;
     let colorspace_conversion_elements = colorspace_conversion.gst_elements()?;
     let decoder_elements = decoder.gst_main_elements()?;
-    
-    pipeline.add_many(&[&video_src, &appsink, &tee_decoded, &tee_source, &queue_to_app, &queue_to_decode])
-            .map_err(|_| "Cannot create pipeline")?;
-    pipeline.add_many(&colorspace_conversion_elements.iter().collect::<Vec<_>>())
-            .map_err(|_| "Cannot add colorspace conversion elements to pipeline")?;
+
+    pipeline
+        .add_many(&[
+            &video_src,
+            &appsink,
+            &tee_decoded,
+            &tee_source,
+            &queue_to_app,
+            &queue_to_decode,
+        ])
+        .map_err(|_| "Cannot create pipeline")?;
+    pipeline
+        .add_many(&colorspace_conversion_elements.iter().collect::<Vec<_>>())
+        .map_err(|_| "Cannot add colorspace conversion elements to pipeline")?;
     for depay_element in depay_elements {
         pipeline
             .add(depay_element)
             .map_err(|_| "Cannot add depay elements to pipeline")?;
     }
     for decoder_element in &decoder_elements {
-        pipeline.add(decoder_element).map_err(|_| "Cannot add decoder elements element")?;
+        pipeline
+            .add(decoder_element)
+            .map_err(|_| "Cannot add decoder elements element")?;
     }
     for element in depay_elements.windows(2) {
         if let [a, b] = element {
-            a.link(b).map_err(|_| "Cannot link elements between depay elements")?;
+            a.link(b)
+                .map_err(|_| "Cannot link elements between depay elements")?;
         }
     }
     for element in decoder_elements.windows(2) {
         if let [a, b] = element {
-            a.link(b).map_err(|_| "Cannot link elements between decoder elements")?;
+            a.link(b)
+                .map_err(|_| "Cannot link elements between decoder elements")?;
         }
     }
     for element in colorspace_conversion_elements.windows(2) {
         if let [a, b] = element {
-            a.link(b).map_err(|_| "Cannot link elements between colorspace conversion elements")?;
+            a.link(b)
+                .map_err(|_| "Cannot link elements between colorspace conversion elements")?;
         }
     }
     match (decoder_elements.first(), decoder_elements.last()) {
         (Some(first), Some(last)) => {
-            queue_to_decode.link(first).map_err(|_| "Cannot link queue to the first decoder element")?;
-            last.link(&tee_decoded).map_err(|_| "Cannot link last decode to tee")?;
-        },
+            queue_to_decode
+                .link(first)
+                .map_err(|_| "Cannot link queue to the first decoder element")?;
+            last.link(&tee_decoded)
+                .map_err(|_| "Cannot link last decode to tee")?;
+        }
         _ => return Err("Missing decoder element".to_string()),
     }
-    match (colorspace_conversion_elements.first(), colorspace_conversion_elements.last()) {
+    match (
+        colorspace_conversion_elements.first(),
+        colorspace_conversion_elements.last(),
+    ) {
         (Some(first), Some(last)) => {
-            queue_to_app.link(first).map_err(|_| "Cannot link the last decoder element to first colorspace conversion element")?;
-            last.link(&appsink).map_err(|_| "Cannot link last colorspace conversion element to appsink")?;
-        },
+            queue_to_app.link(first).map_err(|_| {
+                "Cannot link the last decoder element to first colorspace conversion element"
+            })?;
+            last.link(&appsink)
+                .map_err(|_| "Cannot link last colorspace conversion element to appsink")?;
+        }
         _ => return Err("Missing decoder element".to_string()),
     }
     if appsink_queue_leaky_enabled {
-        queue_to_app.set_property_from_value("leaky", &EnumClass::new(queue_to_app.property_type("leaky").unwrap()).unwrap().to_value(2).unwrap());
+        queue_to_app.set_property_from_value(
+            "leaky",
+            &EnumClass::new(queue_to_app.property_type("leaky").unwrap())
+                .unwrap()
+                .to_value(2)
+                .unwrap(),
+        );
     }
     // appsink.set_property("sync", true);
-    tee_source.request_pad_simple("src_%u").unwrap().link(&queue_to_decode.static_pad("sink").unwrap()).map_err(|_| "Cannot link tee to decoder queue")?;
-    tee_decoded.request_pad_simple("src_%u").unwrap().link(&queue_to_app.static_pad("sink").unwrap()).map_err(|_| "Cannot link tee to appsink queue")?;
+    tee_source
+        .request_pad_simple("src_%u")
+        .unwrap()
+        .link(&queue_to_decode.static_pad("sink").unwrap())
+        .map_err(|_| "Cannot link tee to decoder queue")?;
+    tee_decoded
+        .request_pad_simple("src_%u")
+        .unwrap()
+        .link(&queue_to_app.static_pad("sink").unwrap())
+        .map_err(|_| "Cannot link tee to appsink queue")?;
     match (depay_elements.first(), depay_elements.last()) {
         (Some(first), Some(last)) => {
             let first = first.clone();
             if let Some(src) = video_src.static_pad("src") {
-                src.link(&first.static_pad("sink").unwrap()).map_err(|_| "Cannot link video source element to the first depay element").unwrap();
+                src.link(&first.static_pad("sink").unwrap())
+                    .map_err(|_| "Cannot link video source element to the first depay element")
+                    .unwrap();
             } else {
                 video_src.connect("pad-added", true, move |args| {
                     if let [_element, pad] = args {
@@ -544,7 +694,7 @@ pub fn create_pipeline(source: VideoSource, latency: u32, colorspace_conversion:
                                 None
                             }
                         });
-                        
+
                         if media.map_or(false, |x| x.eq("video")) {
                             pad.link(&first.static_pad("sink").unwrap()).map_err(|_| "Cannot delay link video source element to the first depay element").unwrap();
                         }
@@ -552,32 +702,54 @@ pub fn create_pipeline(source: VideoSource, latency: u32, colorspace_conversion:
                     None
                 });
             }
-            last.link(&tee_source).map_err(|_| "Cannot link the last depay element to tee")?;
-        },
-        _ => video_src.link(&tee_source).map_err(|_| "Cannot link video source to tee")?,
+            last.link(&tee_source)
+                .map_err(|_| "Cannot link the last depay element to tee")?;
+        }
+        _ => video_src
+            .link(&tee_source)
+            .map_err(|_| "Cannot link video source to tee")?,
     }
     Ok(pipeline)
 }
 
 fn correct_underwater_color(src: Mat) -> Mat {
     let mut image = Mat::default();
-    src.convert_to(&mut image, cv::core::CV_32FC3, 1.0, 0.0).expect("Cannot convert source image");
+    src.convert_to(&mut image, cv::core::CV_32FC3, 1.0, 0.0)
+        .expect("Cannot convert source image");
     let image = (image / 255.0).into_result().unwrap();
     let mut channels = cv::types::VectorOfMat::new();
     cv::core::split(&image, &mut channels).expect("Cannot split image");
     let [mut mean, mut std] = [cv::core::Scalar::default(); 2];
     let image_original_size = image;
     let mut image = Mat::default();
-    cv::imgproc::resize(&image_original_size, &mut image, Size::new(128, 128), 0.0, 0.0, imgproc::INTER_NEAREST).expect("Cannot resize image");
-    cv::core::mean_std_dev(&image, &mut mean, &mut std, &cv::core::no_array()).expect("Cannot calculate mean and standard deviation for image");
+    cv::imgproc::resize(
+        &image_original_size,
+        &mut image,
+        Size::new(128, 128),
+        0.0,
+        0.0,
+        imgproc::INTER_NEAREST,
+    )
+    .expect("Cannot resize image");
+    cv::core::mean_std_dev(&image, &mut mean, &mut std, &cv::core::no_array())
+        .expect("Cannot calculate mean and standard deviation for image");
     const U: f64 = 3.0;
-    let min_max = mean.iter().zip(std.iter()).map(|(mean, std)| (mean - U * std, mean + U * std));
-    let channels = channels.iter().zip(min_max).map(|(channel, (min, max))| (channel - VecN::from(min)) / (max - min) * 255.0).map(|x| x.into_result().and_then(|x| x.to_mat()).unwrap());
+    let min_max = mean
+        .iter()
+        .zip(std.iter())
+        .map(|(mean, std)| (mean - U * std, mean + U * std));
+    let channels = channels
+        .iter()
+        .zip(min_max)
+        .map(|(channel, (min, max))| (channel - VecN::from(min)) / (max - min) * 255.0)
+        .map(|x| x.into_result().and_then(|x| x.to_mat()).unwrap());
     let channels = VectorOfMat::from_iter(channels);
     let mut image = Mat::default();
     cv::core::merge(&channels, &mut image).expect("Cannot merge result channels");
     let mut result = Mat::default();
-    image.convert_to(&mut result, cv::core::CV_8UC3, 1.0, 0.0).expect("Cannot convert result data type");
+    image
+        .convert_to(&mut result, cv::core::CV_8UC3, 1.0, 0.0)
+        .expect("Cannot convert result data type");
     result
 }
 
@@ -587,16 +759,27 @@ fn apply_clahe(mut mat: Mat) -> Mat {
     cv::core::split(&mat, &mut channels).expect("Cannot split image");
     if let Ok(mut clahe) = imgproc::create_clahe(2.0, Size::new(8, 8)) {
         for mut channel in channels.iter() {
-            clahe.apply(&channel.clone(), &mut channel).expect("Cannot apply CLAHE");
+            clahe
+                .apply(&channel.clone(), &mut channel)
+                .expect("Cannot apply CLAHE");
         }
     }
     cv::core::merge(&channels, &mut mat).expect("Cannot merge result channels");
     mat
 }
 
-pub fn attach_pipeline_callback(pipeline: &Pipeline, sender: Sender<Mat>, config: Arc<Mutex<SlaveConfigModel>>) -> Result<(), String> {
+pub fn attach_pipeline_callback(
+    pipeline: &Pipeline,
+    sender: Sender<Mat>,
+    config: Rc<SlaveConfigModel>,
+) -> Result<(), String> {
     let frame_size: Arc<Mutex<Option<(i32, i32)>>> = Arc::new(Mutex::new(None));
-    let appsink = pipeline.by_name("display").unwrap().dynamic_cast::<gst_app::AppSink>().unwrap();
+    let appsink = pipeline
+        .by_name("display")
+        .unwrap()
+        .dynamic_cast::<gst_app::AppSink>()
+        .unwrap();
+    let algorithm = config.video_algorithms.clone();
     appsink.set_callbacks(
         gst_app::AppSinkCallbacks::builder()
             .new_event(clone!(@strong frame_size => move |appsink| {
@@ -639,16 +822,11 @@ pub fn attach_pipeline_callback(pipeline: &Pipeline, sender: Sender<Mat>, config
                 let mat = unsafe {
                     Mat::new_rows_cols_with_data(height, width, cv::core::CV_8UC3, map.as_ptr() as *mut c_void, cv::core::Mat_AUTO_STEP)
                 }.map_err(|_| gst::FlowError::CustomError)?.clone();
-                let mat = match config.lock() {
-                    Ok(config) => {
-                        match config.video_algorithms.first() {
-                            Some(VideoAlgorithm::CLAHE) => {
-                                apply_clahe(correct_underwater_color(mat))
-                            },
-                            _ => mat,
-                        }
+                let mat = match algorithm.first() {
+                    Some(VideoAlgorithm::CLAHE) => {
+                        apply_clahe(correct_underwater_color(mat))
                     },
-                    Err(_) => mat,
+                    _ => mat,
                 };
                 sender.send(mat).unwrap();
                 Ok(gst::FlowSuccess::Ok)

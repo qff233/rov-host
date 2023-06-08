@@ -1,4 +1,5 @@
 /target
 .tags
+.vscode
 /build
 Cargo.lock
