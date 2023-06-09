@@ -122,7 +122,6 @@ impl SimpleComponent for AppModel {
                         },
                     },
                 },
-                #[name(body_stack)]
                 append = &Stack {
                     set_hexpand: true,
                     set_vexpand: true,
@@ -133,7 +132,11 @@ impl SimpleComponent for AppModel {
                         #[track = "model.changed(AppModel::slaves())"]
                         set_visible: model.get_slaves().len() == 0,
                     },
-                    add_child: slave
+                    add_child = &GtkBox {
+                        #[track = "model.changed(AppModel::slaves())"]
+                        set_visible: model.get_slaves().len() != 0,
+                        append: slave
+                    }
                 }
             }
         }
