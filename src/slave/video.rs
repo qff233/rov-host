@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, path::PathBuf, rc::Rc, sync::Mutex};
+use std::{path::PathBuf, sync::Mutex};
 
 use adw::{gtk::ContentFit, prelude::*, StatusPage};
 use gst::{
@@ -27,21 +27,21 @@ use super::video_ext::*;
 use super::{async_glib::Promise, config::SlaveConfigModel};
 
 pub struct SlaveVideoInit {
-    pub preferences: Rc<PreferencesModel>,
-    pub config: Rc<SlaveConfigModel>,
+    pub preferences: PreferencesModel,
+    pub config: SlaveConfigModel,
 }
 
 #[tracker::track]
 #[derive(Debug)]
 pub struct SlaveVideoModel {
     #[no_eq]
-    pub pixbuf: Option<Pixbuf>,
-    pub pipeline: Option<Pipeline>,
-    #[no_eq]
     pub record_handle: Option<((gst::Element, gst::Pad), Vec<gst::Element>)>,
     #[no_eq]
-    pub slave_config: Rc<SlaveConfigModel>,
-    pub preferences: Rc<PreferencesModel>,
+    pub pixbuf: Option<Pixbuf>,
+    pipeline: Option<Pipeline>,
+    #[no_eq]
+    slave_config: SlaveConfigModel,
+    preferences: PreferencesModel,
 }
 
 #[derive(Debug)]
@@ -51,7 +51,8 @@ pub enum SlaveVideoInput {
     SetPixbuf(Option<Pixbuf>),
     StartRecord(PathBuf),
     StopRecord(Option<Promise<()>>),
-    ConfigUpdated(Rc<SlaveConfigModel>),
+    UpdatePreferences(PreferencesModel),
+    UpdateConfig(SlaveConfigModel),
     SaveScreenshot(PathBuf),
     RequestFrame,
 }
@@ -66,10 +67,6 @@ pub enum SlaveVideoOutput {
 
 #[relm4::component(pub)]
 impl SimpleComponent for SlaveVideoModel {
-    type Init = SlaveVideoInit;
-    type Input = SlaveVideoInput;
-    type Output = SlaveVideoOutput;
-
     view! {
         frame = GtkBox {
             append = &Stack {
@@ -98,6 +95,10 @@ impl SimpleComponent for SlaveVideoModel {
         }
     }
 
+    type Init = SlaveVideoInit;
+    type Input = SlaveVideoInput;
+    type Output = SlaveVideoOutput;
+
     fn init(
         init: Self::Init,
         root: &Self::Root,
@@ -124,7 +125,6 @@ impl SimpleComponent for SlaveVideoModel {
                 assert!(self.pipeline == None);
                 let config = self.get_slave_config();
                 let video_url = config.get_video_url();
-                print!("{}", video_url);
                 if let Some(video_source) = VideoSource::from_url(video_url) {
                     let video_decoder = config.get_video_decoder().clone();
                     let colorspace_conversion = config.get_colorspace_conversion().clone();
@@ -150,7 +150,7 @@ impl SimpleComponent for SlaveVideoModel {
                             super::video::attach_pipeline_callback(
                                 &pipeline,
                                 mat_sender,
-                                self.get_slave_config().clone(),
+                                self.get_slave_config(),
                             )
                             .unwrap();
                             {
@@ -337,9 +337,8 @@ impl SimpleComponent for SlaveVideoModel {
                 //     self.set_record_handle(None);
                 // }
             }
-            ConfigUpdated(config) => {
-                self.set_slave_config(config);
-            }
+            UpdateConfig(config) => self.set_slave_config(config),
+            UpdatePreferences(preferences) => self.set_preferences(preferences),
             SaveScreenshot(pathbuf) => {
                 assert!(self.pixbuf != None);
                 if let Some(pixbuf) = &self.pixbuf {

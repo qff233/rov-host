@@ -127,7 +127,7 @@ pub enum PreferencesMsg {
     SetDefaultVideoUrl(Url),
     SetDefaultSlaveUrl(Url),
     SetPipelineTimeout(Duration),
-    SetApplicationColorScheme(Option<AppColorScheme>),
+    SetApplicationColorScheme(AppColorScheme),
     SetDefaultStatusInfoUpdateInterval(u16),
     SaveToFile,
     OpenVideoDirectory,
@@ -137,8 +137,9 @@ pub enum PreferencesMsg {
 }
 
 #[derive(Debug)]
-pub enum PreferencesToAppMsg {
+pub enum PreferencesOutput {
     SetColorScheme(AppColorScheme),
+    UpdataPreferences(PreferencesModel),
 }
 
 impl PreferencesModel {
@@ -155,10 +156,6 @@ impl PreferencesModel {
 
 #[relm4::component(pub)]
 impl SimpleComponent for PreferencesModel {
-    type Init = ();
-    type Input = PreferencesMsg;
-    type Output = PreferencesToAppMsg;
-
     view! {
         PreferencesWindow {
             set_title: Some("首选项"),
@@ -191,7 +188,7 @@ impl SimpleComponent for PreferencesModel {
                         #[track = "model.changed(PreferencesModel::application_color_scheme())"]
                         set_selected: AppColorScheme::iter().position(|x| x == model.application_color_scheme).unwrap() as u32,
                         connect_selected_notify[sender] => move |row| {
-                            sender.input(PreferencesMsg::SetApplicationColorScheme(Some(AppColorScheme::iter().nth(row.selected() as usize).unwrap())))
+                            sender.input(PreferencesMsg::SetApplicationColorScheme(AppColorScheme::iter().nth(row.selected() as usize).unwrap()))
                         },
                     },
                 },
@@ -586,6 +583,10 @@ impl SimpleComponent for PreferencesModel {
         }
     }
 
+    type Init = ();
+    type Input = PreferencesMsg;
+    type Output = PreferencesOutput;
+
     fn init(
         _init: Self::Init,
         root: &Self::Root,
@@ -634,11 +635,10 @@ impl SimpleComponent for PreferencesModel {
             }
             SetPipelineTimeout(timeout) => self.set_pipeline_timeout(timeout),
             SetApplicationColorScheme(scheme) => {
-                if let Some(scheme) = scheme {
-                    sender
-                        .output(PreferencesToAppMsg::SetColorScheme(scheme))
-                        .unwrap();
-                };
+                self.set_application_color_scheme(scheme.clone());
+                sender
+                    .output(PreferencesOutput::SetColorScheme(scheme))
+                    .unwrap()
             }
             SetDefaultStatusInfoUpdateInterval(interval) => {
                 self.set_default_status_info_update_interval(interval)
@@ -676,5 +676,9 @@ impl SimpleComponent for PreferencesModel {
             }
             SetImageSaveFormat(format) => self.set_image_save_format(format),
         }
+
+        sender
+            .output(PreferencesOutput::UpdataPreferences(self.clone()))
+            .unwrap()
     }
 }

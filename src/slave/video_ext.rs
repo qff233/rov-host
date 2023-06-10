@@ -771,7 +771,7 @@ fn apply_clahe(mut mat: Mat) -> Mat {
 pub fn attach_pipeline_callback(
     pipeline: &Pipeline,
     sender: Sender<Mat>,
-    config: Rc<SlaveConfigModel>,
+    config: &SlaveConfigModel,
 ) -> Result<(), String> {
     let frame_size: Arc<Mutex<Option<(i32, i32)>>> = Arc::new(Mutex::new(None));
     let appsink = pipeline

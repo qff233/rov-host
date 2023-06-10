@@ -4,8 +4,6 @@ mod video;
 
 pub mod video_ext;
 
-use std::rc::Rc;
-
 use relm4::{
     adw::{prelude::*, Flap, ToastOverlay},
     factory::{positions::GridPosition, Position},
@@ -19,12 +17,12 @@ use relm4::{
 
 use crate::{
     preferences::PreferencesModel,
-    slave::{config::SlaveConfigMsg, video::SlaveVideoInput},
+    slave::{config::SlaveConfigInput, video::SlaveVideoInput},
     AppMsg,
 };
 
 use self::{
-    config::SlaveConfigModel,
+    config::{SlaveConfigModel, SlaveConfigOutput},
     video::{SlaveVideoInit, SlaveVideoModel, SlaveVideoOutput},
 };
 
@@ -41,7 +39,8 @@ pub struct SlaveModel {
     // rpc_client: Option<async_std::sync::Arc<RpcClient>>,
     // infos: FactoryVecDeque<SlaveInfoModel>,
     // pub input_event_sender: Sender<InputSourceEvent>,
-    preferences: Rc<PreferencesModel>,
+    #[no_eq]
+    preferences: PreferencesModel,
     sync_recording: bool,
     slave_info_displayed: bool,
     config_presented: bool,
@@ -50,7 +49,6 @@ pub struct SlaveModel {
 
 #[derive(Debug)]
 pub enum SlaveInput {
-    ConfigUpdated(PreferencesModel),
     ToggleRecord,
     ToggleConnect,
     TogglePolling,
@@ -73,6 +71,9 @@ pub enum SlaveInput {
     //CommunicationMessage(SlaveCommunicationMsg),
     //InformationsReceived(HashMap<String, String>),
     SetConfigPresented(bool),
+
+    UpdataPreferences(PreferencesModel),
+    UpdateConfig(SlaveConfigModel),
 }
 
 #[derive(Debug)]
@@ -96,13 +97,6 @@ impl Position<GridPosition, DynamicIndex> for SlaveModel {
 
 #[relm4::factory(pub)]
 impl FactoryComponent for SlaveModel {
-    type Init = Rc<PreferencesModel>;
-    type Input = SlaveInput;
-    type Output = SlaveOutput;
-    type CommandOutput = ();
-    type ParentInput = AppMsg;
-    type ParentWidget = Grid;
-
     view! {
         #[root]
         ToastOverlay {
@@ -434,6 +428,13 @@ impl FactoryComponent for SlaveModel {
         }
     }
 
+    type Init = PreferencesModel;
+    type Input = SlaveInput;
+    type Output = SlaveOutput;
+    type CommandOutput = ();
+    type ParentInput = AppMsg;
+    type ParentWidget = Grid;
+
     fn init_model(
         preferences: Self::Init,
         index: &DynamicIndex,
@@ -441,10 +442,12 @@ impl FactoryComponent for SlaveModel {
     ) -> Self {
         let config_model = SlaveConfigModel::builder()
             .launch(preferences.clone())
-            .detach();
+            .forward(sender.input_sender(), |msg| match msg {
+                SlaveConfigOutput::UpdateConfig(config) => SlaveInput::UpdateConfig(config),
+            });
         let video_model_init = SlaveVideoInit {
             preferences: preferences.clone(),
-            config: Rc::new(config_model.model().clone()),
+            config: config_model.model().clone(),
         };
         let video_model = SlaveVideoModel::builder().launch(video_model_init).forward(
             sender.input_sender(),
@@ -475,10 +478,6 @@ impl FactoryComponent for SlaveModel {
 
         use SlaveInput::*;
         match message {
-            ConfigUpdated(preference) => {
-                self.config_model
-                    .emit(SlaveConfigMsg::UpdatePreferences(preference));
-            }
             ToggleRecord => {
                 let video = &self.video_model;
                 if video.model().get_record_handle().is_none() {
@@ -502,7 +501,7 @@ impl FactoryComponent for SlaveModel {
                     Some(true) => {
                         // 断开连接
                         self.set_connected(None);
-                        self.config_model.emit(SlaveConfigMsg::SetConnected(None));
+                        self.config_model.emit(SlaveConfigInput::SetConnected(None));
                         // let sender = self.get_communication_msg_sender().clone().unwrap();
                         // task::spawn(async move {
                         //     sender.send(SlaveCommunicationMsg::Disconnect).await.expect("Communication main loop should be running");
@@ -541,19 +540,19 @@ impl FactoryComponent for SlaveModel {
                 Some(true) => {
                     self.video_model.emit(SlaveVideoInput::StopPipeline);
                     self.set_polling(None);
-                    self.config_model.emit(SlaveConfigMsg::SetPolling(None));
+                    self.config_model.emit(SlaveConfigInput::SetPolling(None));
                 }
                 Some(false) => {
                     self.video_model.emit(SlaveVideoInput::StartPipeline);
                     self.set_polling(None);
-                    self.config_model.emit(SlaveConfigMsg::SetPolling(None));
+                    self.config_model.emit(SlaveConfigInput::SetPolling(None));
                 }
                 None => (),
             },
             PollingChanged(val) => {
                 self.set_polling(Some(val));
                 self.config_model
-                    .emit(SlaveConfigMsg::SetPolling(Some(val)));
+                    .emit(SlaveConfigInput::SetPolling(Some(val)));
             }
             RecordingChanged(val) => {
                 if val {
@@ -611,6 +610,15 @@ impl FactoryComponent for SlaveModel {
             //CommunicationMessage(SlaveCommunicationMsg) => {}
             //InformationsReceived(HashMap<String, String>) => {}
             SetConfigPresented(val) => self.set_config_presented(val),
+            UpdataPreferences(preferences) => {
+                self.config_model
+                    .emit(SlaveConfigInput::UpdatePreferences(preferences.clone()));
+                self.video_model
+                    .emit(SlaveVideoInput::UpdatePreferences(preferences));
+
+                sender.input(SlaveInput::UpdateConfig(self.config_model.model().clone()));
+            }
+            UpdateConfig(config) => self.video_model.emit(SlaveVideoInput::UpdateConfig(config)),
         }
     }
 

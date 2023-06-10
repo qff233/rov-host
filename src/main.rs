@@ -3,8 +3,6 @@ mod preferences;
 mod slave;
 mod ui;
 
-use std::rc::Rc;
-
 use adw::{prelude::*, CenteringPolicy, ColorScheme, HeaderBar, StatusPage, StyleManager};
 use relm4::{
     actions::{RelmAction, RelmActionGroup},
@@ -44,10 +42,6 @@ new_stateless_action!(AboutDialogAction, AppActionGroup, "about");
 
 #[relm4::component]
 impl SimpleComponent for AppModel {
-    type Init = ();
-    type Input = AppMsg;
-    type Output = ();
-
     view! {
         adw::ApplicationWindow {
             set_title: Some("水下机器人上位机"),
@@ -149,6 +143,10 @@ impl SimpleComponent for AppModel {
         }
     }
 
+    type Init = ();
+    type Input = AppMsg;
+    type Output = ();
+
     fn init(
         _init: Self::Init,
         root: &Self::Root,
@@ -161,10 +159,10 @@ impl SimpleComponent for AppModel {
         let prefermances_model = PreferencesModel::builder()
             .transient_for(root)
             .launch(())
-            .forward(sender.input_sender(), |msg| {
-                use PreferencesToAppMsg::*;
-                match msg {
-                    SetColorScheme(scheme) => AppMsg::SetColorScheme(scheme),
+            .forward(sender.input_sender(), |msg| match msg {
+                PreferencesOutput::SetColorScheme(scheme) => AppMsg::SetColorScheme(scheme),
+                PreferencesOutput::UpdataPreferences(preferences) => {
+                    AppMsg::UpdataPreferences(preferences)
                 }
             });
 
@@ -202,15 +200,19 @@ impl SimpleComponent for AppModel {
 
         use AppMsg::*;
         match message {
+            UpdataPreferences(preferences) => {
+                let slave = self.get_slaves();
+                for i in 0..slave.len() {
+                    slave.send(i, SlaveInput::UpdataPreferences(preferences.clone()));
+                }
+            }
             RemoveLastSlave => {
                 let index = self.get_mut_slaves().len() - 1;
                 self.get_mut_slaves().guard().remove(index);
-                // println!("{}", self.changed(AppModel::slaves()));  ！！删除到0时 显示不了StatusPage!
-                // println!("{}", self.get_slaves().len());
             }
             NewSlave => {
                 let preference = self.prefermances_model.model().clone();
-                self.get_mut_slaves().guard().push_back(Rc::new(preference));
+                self.get_mut_slaves().guard().push_back(preference);
             }
             DestroySlave(index) => {
                 let len = self.get_mut_slaves().len();
@@ -232,12 +234,6 @@ impl SimpleComponent for AppModel {
                 AppColorScheme::Dark => ColorScheme::ForceDark,
             }),
             ToggleSyncRecording => {}
-            PreferencesUpdated(preference) => {
-                for i in 0..self.slaves.len() {
-                    self.slaves
-                        .send(i, SlaveInput::ConfigUpdated(preference.clone()));
-                }
-            }
         }
     }
 }
@@ -268,11 +264,11 @@ impl Default for AppColorScheme {
 
 #[derive(Debug)]
 pub enum AppMsg {
+    UpdataPreferences(PreferencesModel),
     NewSlave,
     RemoveLastSlave,
     DestroySlave(usize),
     // DispatchInputEvent(InputEvent),
-    PreferencesUpdated(PreferencesModel),
     SetColorScheme(AppColorScheme),
     ToggleSyncRecording,
     SetFullscreened(bool),

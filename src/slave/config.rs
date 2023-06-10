@@ -1,4 +1,4 @@
-use std::{rc::Rc, str::FromStr};
+use std::str::FromStr;
 
 use relm4::{
     adw::{prelude::*, ActionRow, ComboRow, ExpanderRow, PreferencesGroup},
@@ -38,8 +38,7 @@ pub struct SlaveConfigModel {
 }
 
 #[derive(Debug)]
-pub enum SlaveConfigMsg {
-    UpdatePreferences(PreferencesModel),
+pub enum SlaveConfigInput {
     SetVideoUrl(Url),
     SetSlaveUrl(Url),
     SetKeepVideoDisplayRatio(bool),
@@ -57,14 +56,17 @@ pub enum SlaveConfigMsg {
     SetReencodeRecordingVideo(bool),
     SetAppSinkQueueLeakyEnabled(bool),
     SetVideoLatency(u32),
+
+    UpdatePreferences(PreferencesModel),
+}
+
+#[derive(Debug)]
+pub enum SlaveConfigOutput {
+    UpdateConfig(SlaveConfigModel),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for SlaveConfigModel {
-    type Init = Rc<PreferencesModel>;
-    type Input = SlaveConfigMsg;
-    type Output = ();
-
     view! {
         GtkBox {
             add_css_class: "background",
@@ -96,7 +98,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     set_valign: Align::Center,
                                     connect_changed[sender] => move |entry| {
                                         if let Ok(url) = Url::from_str(&entry.text()) {
-                                            sender.input(SlaveConfigMsg::SetSlaveUrl(url));
+                                            sender.input(SlaveConfigInput::SetSlaveUrl(url));
                                             entry.remove_css_class("error");
                                         } else {
                                             entry.add_css_class("error");
@@ -116,7 +118,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     set_active: *model.get_swap_xy(),
                                     set_valign: Align::Center,
                                     connect_state_set[sender] => move |_, state| {
-                                        sender.input(SlaveConfigMsg::SetSwapXY(state));
+                                        sender.input(SlaveConfigInput::SetSwapXY(state));
                                         Inhibit(false)
                                     }
                                 },
@@ -135,7 +137,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     set_active: *model.get_keep_video_display_ratio(),
                                     set_valign: Align::Center,
                                     connect_state_set[sender] => move |_, state| {
-                                        sender.input(SlaveConfigMsg::SetKeepVideoDisplayRatio(state));
+                                        sender.input(SlaveConfigInput::SetKeepVideoDisplayRatio(state));
                                         Inhibit(false)
                                     }
                                 },
@@ -155,7 +157,7 @@ impl SimpleComponent for SlaveConfigModel {
                                 #[track = "model.changed(SlaveConfigModel::video_algorithms())"]
                                 set_selected: VideoAlgorithm::iter().position(|x| model.video_algorithms.first().map_or_else(|| false, |y| *y == x)).map_or_else(|| 0, |x| x + 1) as u32,
                                 connect_selected_notify[sender] => move |row| {
-                                    sender.input(SlaveConfigMsg::SetVideoAlgorithm(if row.selected() > 0 { Some(VideoAlgorithm::iter().nth(row.selected().wrapping_sub(1) as usize).unwrap()) } else { None }));
+                                    sender.input(SlaveConfigInput::SetVideoAlgorithm(if row.selected() > 0 { Some(VideoAlgorithm::iter().nth(row.selected().wrapping_sub(1) as usize).unwrap()) } else { None }));
                                 }
                             }
                         },
@@ -174,7 +176,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     set_width_request: 160,
                                     connect_changed[sender] => move |entry| {
                                         if let Ok(url) = Url::from_str(&entry.text()) {
-                                            sender.input(SlaveConfigMsg::SetVideoUrl(url));
+                                            sender.input(SlaveConfigInput::SetVideoUrl(url));
                                             entry.remove_css_class("error");
                                         } else {
                                             entry.add_css_class("error");
@@ -190,7 +192,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     set_active: *model.get_appsink_queue_leaky_enabled(),
                                     set_valign: Align::Center,
                                     connect_state_set[sender] => move |_, state| {
-                                        sender.input(SlaveConfigMsg::SetAppSinkQueueLeakyEnabled(state));
+                                        sender.input(SlaveConfigInput::SetAppSinkQueueLeakyEnabled(state));
                                         Inhibit(false)
                                     }
                                 },
@@ -203,7 +205,7 @@ impl SimpleComponent for SlaveConfigModel {
                                 #[track = "model.changed(SlaveConfigModel::use_decodebin())"]
                                 set_enable_expansion: !model.get_use_decodebin(),
                                 connect_enable_expansion_notify[sender] => move |expander| {
-                                    sender.input(SlaveConfigMsg::SetUsePlaybin(!expander.enables_expansion()));
+                                    sender.input(SlaveConfigInput::SetUsePlaybin(!expander.enables_expansion()));
                                 },
                                 add_row = &ActionRow {
                                     set_title: "接收缓冲区延迟",
@@ -215,7 +217,7 @@ impl SimpleComponent for SlaveConfigModel {
                                         set_valign: Align::Center,
                                         set_can_focus: false,
                                         connect_value_changed[sender] => move |button| {
-                                            sender.input(SlaveConfigMsg::SetVideoLatency(button.value() as u32));
+                                            sender.input(SlaveConfigInput::SetVideoLatency(button.value() as u32));
                                         }
                                     },
                                     add_suffix = &Label {
@@ -235,7 +237,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     #[track = "model.changed(SlaveConfigModel::colorspace_conversion())"]
                                     set_selected: ColorspaceConversion::iter().position(|x| x == model.colorspace_conversion).unwrap() as u32,
                                     connect_selected_notify[sender] => move |row| {
-                                        sender.input(SlaveConfigMsg::SetColorspaceConversion(ColorspaceConversion::iter().nth(row.selected() as usize).unwrap()));
+                                        sender.input(SlaveConfigInput::SetColorspaceConversion(ColorspaceConversion::iter().nth(row.selected() as usize).unwrap()));
                                     }
                                 },
                                 add_row = &ComboRow {
@@ -251,7 +253,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     #[track = "model.changed(SlaveConfigModel::video_decoder())"]
                                     set_selected: VideoCodec::iter().position(|x| x == model.video_decoder.0).unwrap() as u32,
                                     connect_selected_notify[sender] => move |row| {
-                                        sender.input(SlaveConfigMsg::SetVideoDecoderCodec(VideoCodec::iter().nth(row.selected() as usize).unwrap()))
+                                        sender.input(SlaveConfigInput::SetVideoDecoderCodec(VideoCodec::iter().nth(row.selected() as usize).unwrap()))
                                     }
                                 },
                                 add_row = &ComboRow {
@@ -267,7 +269,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     #[track = "model.changed(SlaveConfigModel::video_decoder())"]
                                     set_selected: VideoCodecProvider::iter().position(|x| x == model.video_decoder.1).unwrap() as u32,
                                     connect_selected_notify[sender] => move |row| {
-                                        sender.input(SlaveConfigMsg::SetVideoDecoderCodecProvider(VideoCodecProvider::iter().nth(row.selected() as usize).unwrap()))
+                                        sender.input(SlaveConfigInput::SetVideoDecoderCodecProvider(VideoCodecProvider::iter().nth(row.selected() as usize).unwrap()))
                                     },
                                 },
                             },
@@ -278,7 +280,7 @@ impl SimpleComponent for SlaveConfigModel {
                                 #[track = "model.changed(SlaveConfigModel::reencode_recording_video())"]
                                 set_enable_expansion: *model.get_reencode_recording_video(),
                                 connect_enable_expansion_notify[sender] => move |expander| {
-                                    sender.input(SlaveConfigMsg::SetReencodeRecordingVideo(expander.enables_expansion()));
+                                    sender.input(SlaveConfigInput::SetReencodeRecordingVideo(expander.enables_expansion()));
                                 },
                                 add_row = &ComboRow {
                                     set_title: "编码器",
@@ -293,7 +295,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     #[track = "model.changed(SlaveConfigModel::video_encoder())"]
                                     set_selected: VideoCodec::iter().position(|x| x == model.video_encoder.0).unwrap() as u32,
                                     connect_selected_notify[sender] => move |row| {
-                                        sender.input(SlaveConfigMsg::SetVideoEncoderCodec(VideoCodec::iter().nth(row.selected() as usize).unwrap()))
+                                        sender.input(SlaveConfigInput::SetVideoEncoderCodec(VideoCodec::iter().nth(row.selected() as usize).unwrap()))
                                     }
                                 },
                                 add_row = &ComboRow {
@@ -309,7 +311,7 @@ impl SimpleComponent for SlaveConfigModel {
                                     #[track = "model.changed(SlaveConfigModel::video_encoder())"]
                                     set_selected:  VideoCodecProvider::iter().position(|x| x == model.video_encoder.1).unwrap() as u32,
                                     connect_selected_notify[sender] => move |row| {
-                                        sender.input(SlaveConfigMsg::SetVideoEncoderCodecProvider(VideoCodecProvider::iter().nth(row.selected() as usize).unwrap()))
+                                        sender.input(SlaveConfigInput::SetVideoEncoderCodecProvider(VideoCodecProvider::iter().nth(row.selected() as usize).unwrap()))
                                     }
                                 },
                             },
@@ -319,6 +321,10 @@ impl SimpleComponent for SlaveConfigModel {
             },
         }
     }
+
+    type Init = PreferencesModel;
+    type Input = SlaveConfigInput;
+    type Output = SlaveConfigOutput;
 
     fn init(
         preference: Self::Init,
@@ -346,10 +352,10 @@ impl SimpleComponent for SlaveConfigModel {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, message: Self::Input, _sender: relm4::ComponentSender<Self>) {
+    fn update(&mut self, message: Self::Input, sender: relm4::ComponentSender<Self>) {
         self.reset();
 
-        use SlaveConfigMsg::*;
+        use SlaveConfigInput::*;
         match message {
             UpdatePreferences(preference) => {
                 self.keep_video_display_ratio = preference.default_keep_video_display_ratio;
@@ -388,5 +394,9 @@ impl SimpleComponent for SlaveConfigModel {
             SetAppSinkQueueLeakyEnabled(leaky) => self.set_appsink_queue_leaky_enabled(leaky),
             SetVideoLatency(latency) => self.set_video_latency(latency),
         }
+
+        sender
+            .output(SlaveConfigOutput::UpdateConfig(self.clone()))
+            .unwrap()
     }
 }
