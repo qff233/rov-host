@@ -75,7 +75,7 @@ pub struct PreferencesModel {
     #[derivative(Default(value = "Url::from_str(\"http://192.168.137.219:8888\").unwrap()"))]
     pub default_slave_url: Url,
     #[derivative(Default(
-        value = "Url::from_str(\"rtp://127.0.0.1:5600?encoding-name=H264\").unwrap()"
+        value = "Url::from_str(\"rtp://192.168.31.100:5600?encoding-name=H264\").unwrap()"
     ))]
     pub default_video_url: Url,
     #[derivative(Default(value = "60"))]

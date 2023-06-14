@@ -48,6 +48,7 @@ pub struct SlaveVideoModel {
 pub enum SlaveVideoInput {
     StartPipeline,
     StopPipeline,
+    EnsurePipelineStopped,
     SetPixbuf(Option<Pixbuf>),
     StartRecord(PathBuf),
     StopRecord(Option<Promise<()>>),
@@ -197,17 +198,29 @@ impl SimpleComponent for SlaveVideoModel {
             }
             StopPipeline => {
                 assert!(self.pipeline != None);
-                let mut futures = Vec::<Future<()>>::new();
                 let recording = self.is_recording();
                 if recording {
                     let promise = Promise::new();
                     let future = promise.future();
                     sender.input(SlaveVideoInput::StopRecord(Some(promise)));
-                    futures.push(future);
+                    let input_sender = sender.input_sender().clone();
+                    let(event_sender, event_receiver) = glib::MainContext::channel::<()>(glib::PRIORITY_DEFAULT);
+                    event_receiver.attach(None, move |_| {
+                        input_sender.send(SlaveVideoInput::EnsurePipelineStopped).unwrap();
+                        Continue(false)
+                    });
+                    future.for_each(move |_| {
+                        event_sender.send(()).unwrap()
+                    });
+                } else {
+                    sender.input(SlaveVideoInput::EnsurePipelineStopped);
                 }
+            }
+            EnsurePipelineStopped => {
                 let promise = Promise::new();
-                futures.push(promise.future());
+                let future = promise.future();
                 let promise = Mutex::new(Some(promise));
+                let recording = self.is_recording();
                 if let Some(pipeline) = self.pipeline.take() {
                     let sinkpad = pipeline
                         .by_name("display")
@@ -230,20 +243,21 @@ impl SimpleComponent for SlaveVideoModel {
                     if pipeline.current_state() == gst::State::Playing
                         && pipeline.send_event(gst::event::Eos::new())
                     {
-                        // Future::sequence(futures.into_iter()).for_each(
-                        //     clone!(@weak pipeline,@strong sender => move |_| {
-                        //         sender.output(SlaveVideoOutput::PollingChanged(false));
-                        //         pipeline.set_state(gst::State::Null).unwrap();
-                        //     }),
-                        // );
+                        let sender = sender.output_sender().clone();
+                        future.for_each(
+                            clone!(@weak pipeline, @strong sender => move |_| {
+                                sender.send(SlaveVideoOutput::PollingChanged(false)).unwrap();
+                                pipeline.set_state(gst::State::Null).unwrap();
+                            }),
+                        );
                         glib::timeout_add_local_once(
                             self.preferences.get_pipeline_timeout().clone(),
                             clone!(@weak pipeline,@strong sender => move || {
-                                sender.output(SlaveVideoOutput::PollingChanged(false)).unwrap();
+                                sender.send(SlaveVideoOutput::PollingChanged(false)).unwrap();
                                 if recording {
-                                    sender.output(SlaveVideoOutput::RecordingChanged(false)).unwrap();
+                                    sender.send(SlaveVideoOutput::RecordingChanged(false)).unwrap();
                                 }
-                                sender.output(SlaveVideoOutput::ShowToastMessage(String::from("等待管道响应超时，已将其强制终止。"))).unwrap();
+                                sender.send(SlaveVideoOutput::ShowToastMessage(String::from("等待管道响应超时，已将其强制终止。"))).unwrap();
                                 pipeline.set_state(gst::State::Null).unwrap();
                             }),
                         );
@@ -267,7 +281,7 @@ impl SimpleComponent for SlaveVideoModel {
                 self.set_pixbuf(pixbuf)
             }
             StartRecord(pathbuf) => {
-                let config = self.slave_config.clone();
+                let config = self.get_slave_config();
                 if let Some(pipeline) = &self.pipeline {
                     let encoder = if *config.get_reencode_recording_video() {
                         Some(config.get_video_encoder())
@@ -281,29 +295,27 @@ impl SimpleComponent for SlaveVideoModel {
                                 colorspace_conversion,
                                 &pathbuf.to_str().unwrap(),
                             );
-                            let elements_and_pad = elements.and_then(|elements| {
+                            elements.and_then(|elements| {
                                 super::video::connect_elements_to_pipeline(
                                     pipeline,
                                     "tee_decoded",
                                     &elements,
                                 )
                                 .map(|pad| (elements, pad))
-                            });
-                            elements_and_pad
+                            })
                         }
                         None => {
                             let elements = config
                                 .video_decoder
                                 .gst_record_elements(&pathbuf.to_str().unwrap());
-                            let elements_and_pad = elements.and_then(|elements| {
+                            elements.and_then(|elements| {
                                 super::video::connect_elements_to_pipeline(
                                     pipeline,
                                     "tee_source",
                                     &elements,
                                 )
                                 .map(|pad| (elements, pad))
-                            });
-                            elements_and_pad
+                            })
                         }
                     };
                     match record_handle {
@@ -324,18 +336,23 @@ impl SimpleComponent for SlaveVideoModel {
                     }
                 }
             }
-            StopRecord(_promise) => {
-                // if let Some(pipeline) = &self.pipeline {
-                //     if let Some((teepad, elements)) = &self.record_handle {
-                //         // super::video::disconnect_elements_to_pipeline(pipeline, teepad, elements).unwrap().for_each(clone!(@strong parent_sender => move |_| {
-                //         //     send!(parent_sender, SlaveMsg::RecordingChanged(false));
-                //         //     if let Some(promise) = promise {
-                //         //         promise.success(());
-                //         //     }
-                //         // }));
-                //     }
-                //     self.set_record_handle(None);
-                // }
+            StopRecord(promise) => {
+                if let Some(pipeline) = &self.pipeline {
+                    if let Some((teepad, elements)) = &self.record_handle {
+                        let sender = sender.output_sender().clone();
+                        super::video::disconnect_elements_to_pipeline(pipeline, teepad, elements)
+                            .unwrap()
+                            .for_each(move |_| {
+                                sender
+                                    .send(SlaveVideoOutput::RecordingChanged(false))
+                                    .unwrap();
+                                if let Some(promise) = promise {
+                                    promise.success(());
+                                }
+                            });
+                    }
+                    self.set_record_handle(None);
+                }
             }
             UpdateConfig(config) => self.set_slave_config(config),
             UpdatePreferences(preferences) => self.set_preferences(preferences),
@@ -364,7 +381,18 @@ impl SimpleComponent for SlaveVideoModel {
                     };
                 }
             }
-            RequestFrame => {}
+            RequestFrame => {
+                if let Some(pipeline) = &self.pipeline {
+                    pipeline
+                        .by_name("display")
+                        .unwrap()
+                        .dynamic_cast::<gst_app::AppSink>()
+                        .unwrap()
+                        .send_event(gst::event::CustomDownstream::new(
+                            gst::Structure::builder("resend").build(),
+                        ));
+                }
+            }
         }
     }
 }

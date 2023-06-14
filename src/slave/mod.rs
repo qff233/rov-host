@@ -148,9 +148,12 @@ impl FactoryComponent for SlaveModel {
                         },
                         append = &GtkButton {
                             set_icon_name: "camera-video-symbolic",
-                            // set_sensitive: track!(model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()) || model.changed(SlaveModel::recording()), !model.sync_recording && model.recording != None &&  model.polling == Some(true)),
-                            // set_css_classes?: watch!(model.recording.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
-                            // set_tooltip_text: track!(model.changed(SlaveModel::recording()), model.recording.map(|x| if x { "停止录制" } else { "开始录制" })),
+                            #[track = "self.changed(SlaveModel::sync_recording()) || self.changed(SlaveModel::polling()) || self.changed(SlaveModel::recording())"]
+                            set_sensitive: !self.sync_recording && self.recording != None &&  self.polling == Some(true),
+                            #[watch]
+                            set_css_classes?: self.recording.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref(),
+                            #[track = "self.changed(SlaveModel::recording())"]
+                            set_tooltip_text: self.recording.map(|x| if x { "停止录制" } else { "开始录制" }),
                             connect_clicked[sender] => move |_| {
                                 sender.input(SlaveInput::ToggleRecord);
                             },

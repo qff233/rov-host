@@ -192,6 +192,10 @@ impl SimpleComponent for AppModel {
             app_group.add_action(action_about);
         }
         root.insert_action_group("main", Some(&app_group.into_action_group()));
+
+        for _ in 0..*model.prefermances_model.model().get_initial_slave_num() {
+            sender.input(AppMsg::NewSlave)
+        }
         ComponentParts { model, widgets }
     }
 

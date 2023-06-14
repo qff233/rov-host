@@ -171,3 +171,16 @@ where
         self.future.clone()
     }
 }
+
+impl <T> std::future::Future for Future<T> where T: Send + Sync + Clone + 'static {
+    type Output = T;
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let waker = cx.waker().clone();
+        self.for_each(move |_| waker.wake());
+        if let Some(result) = self.state.try_lock().ok().and_then(|x| x.clone()).and_then(Result::ok) {
+            std::task::Poll::Ready((*result).clone())
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+}

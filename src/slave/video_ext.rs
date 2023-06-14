@@ -1,6 +1,5 @@
 use std::{
     ffi::c_void,
-    rc::Rc,
     str::FromStr,
     sync::{Arc, Mutex},
 };
