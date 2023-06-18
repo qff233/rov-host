@@ -18,15 +18,21 @@
 
 use std::sync::{Arc, Mutex};
 
-use glib::{Sender, MainContext, Continue, clone};
+use glib::{clone, Continue, MainContext, Sender};
 use once_cell::sync::OnceCell;
 
-pub struct Future<T> where T: Send {
+pub struct Future<T>
+where
+    T: Send,
+{
     callbacks: Arc<Mutex<Vec<Box<dyn FnOnce(Arc<T>) + Send>>>>,
     state: Arc<Mutex<Option<Result<Arc<T>, Arc<dyn ToString + Send + Sync>>>>>,
 }
 
-impl<T> Clone for Future<T> where T: Send + Sync {
+impl<T> Clone for Future<T>
+where
+    T: Send + Sync,
+{
     fn clone(&self) -> Self {
         Self {
             callbacks: self.callbacks.clone(),
@@ -35,7 +41,10 @@ impl<T> Clone for Future<T> where T: Send + Sync {
     }
 }
 
-impl<T> Future<T> where T: Send + Sync + 'static {
+impl<T> Future<T>
+where
+    T: Send + Sync + 'static,
+{
     fn new() -> Self {
         Self {
             callbacks: Default::default(),
@@ -57,25 +66,34 @@ impl<T> Future<T> where T: Send + Sync + 'static {
         future
     }
 
-    pub fn sequence<I: Iterator<Item = Future<T>> + Send + 'static>(iter: I) -> Future<Vec<Arc<T>>> {
+    pub fn sequence<I: Iterator<Item = Future<T>> + Send + 'static>(
+        iter: I,
+    ) -> Future<Vec<Arc<T>>> {
         let seq: Arc<Mutex<Option<Vec<Arc<T>>>>> = Arc::new(Mutex::new(Some(Vec::new())));
-        let next: Arc<OnceCell<Box<dyn (Fn(I) -> Future<Vec<Arc<T>>>) + Send + Sync>>> = Default::default();
-        next.clone().get_or_init(|| Box::new(move |mut iter| {
-            let seq = seq.clone();
-            match iter.next() {
-                Some(future) => {
-                    let next = next.clone();
-                    future.flat_map(move |value| {
-                        seq.lock().unwrap().as_mut().unwrap().push(value);
-                        (next.get().unwrap())(iter)
-                    })
-                },
-                None => seq.lock().unwrap().take().unwrap().into(),
-            }
-        }))(iter)
+        let next: Arc<OnceCell<Box<dyn (Fn(I) -> Future<Vec<Arc<T>>>) + Send + Sync>>> =
+            Default::default();
+        next.clone().get_or_init(|| {
+            Box::new(move |mut iter| {
+                let seq = seq.clone();
+                match iter.next() {
+                    Some(future) => {
+                        let next = next.clone();
+                        future.flat_map(move |value| {
+                            seq.lock().unwrap().as_mut().unwrap().push(value);
+                            (next.get().unwrap())(iter)
+                        })
+                    }
+                    None => seq.lock().unwrap().take().unwrap().into(),
+                }
+            })
+        })(iter)
     }
 
-    pub fn map<U, F>(&self, f: F) -> Future<U> where U: Send + Sync + 'static, F: FnOnce(Arc<T>) -> U + Send + 'static {
+    pub fn map<U, F>(&self, f: F) -> Future<U>
+    where
+        U: Send + Sync + 'static,
+        F: FnOnce(Arc<T>) -> U + Send + 'static,
+    {
         let promise = Promise::new();
         let future = promise.future();
         self.for_each(move |result| {
@@ -84,7 +102,11 @@ impl<T> Future<T> where T: Send + Sync + 'static {
         future
     }
 
-    pub fn flat_map<U, F>(&self, f: F) -> Future<U> where U: Send + Sync + Clone + 'static, F: FnOnce(Arc<T>) -> Future<U> + Send + 'static {
+    pub fn flat_map<U, F>(&self, f: F) -> Future<U>
+    where
+        U: Send + Sync + Clone + 'static,
+        F: FnOnce(Arc<T>) -> Future<U> + Send + 'static,
+    {
         let promise = Promise::new();
         let future = promise.future();
         self.for_each(move |result| {
@@ -93,7 +115,10 @@ impl<T> Future<T> where T: Send + Sync + 'static {
         future
     }
 
-    pub fn for_each<F>(&self, f: F) where F: FnOnce(Arc<T>) + Send + 'static {
+    pub fn for_each<F>(&self, f: F)
+    where
+        F: FnOnce(Arc<T>) + Send + 'static,
+    {
         match self.state.lock().unwrap().as_ref() {
             Some(result) => match result {
                 Ok(result) => f(result.clone()),
@@ -104,7 +129,10 @@ impl<T> Future<T> where T: Send + Sync + 'static {
     }
 }
 
-impl<T> From<T> for Future<T> where T: Send + Sync + 'static {
+impl<T> From<T> for Future<T>
+where
+    T: Send + Sync + 'static,
+{
     fn from(t: T) -> Self {
         let promise = Promise::new();
         let future = promise.future();
@@ -113,25 +141,31 @@ impl<T> From<T> for Future<T> where T: Send + Sync + 'static {
     }
 }
 
-pub struct Promise<T> where T: Send + Sync {
+pub struct Promise<T>
+where
+    T: Send + Sync,
+{
     sender: Sender<Arc<T>>,
     future: Future<T>,
 }
 
-impl<T> Promise<T> where T: Send + Sync + 'static {
+impl<T> Promise<T>
+where
+    T: Send + Sync + 'static,
+{
     pub fn new() -> Self {
         let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);
         let future = Future::new();
-        receiver.attach(None, clone!(@strong future => move |result| {
-            future.clone().success(result);
-            Continue(false)
-        }));
-        Promise {
-            sender,
-            future,
-        }
+        receiver.attach(
+            None,
+            clone!(@strong future => move |result| {
+                future.clone().success(result);
+                Continue(false)
+            }),
+        );
+        Promise { sender, future }
     }
-    
+
     pub fn success(self, value: T) {
         self.sender.send(Arc::new(value)).unwrap();
     }

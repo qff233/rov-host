@@ -18,18 +18,27 @@
 
 use std::{fs, path::PathBuf, str::FromStr, time::Duration};
 
+use adw::{
+    prelude::*, ActionRow, ComboRow, ExpanderRow, PreferencesGroup, PreferencesPage,
+    PreferencesWindow,
+};
 use glib::Sender;
-use gtk::{Align, Entry, Inhibit, Label, SpinButton, StringList, Switch, prelude::*};
-use adw::{PreferencesGroup, PreferencesPage, PreferencesWindow, prelude::*, ComboRow, ActionRow, ExpanderRow};
-use relm4::{ComponentUpdate, Model, Widgets, send};
+use gtk::{Align, Entry, Inhibit, Label, SpinButton, StringList, Switch};
+use relm4::{send, ComponentUpdate, Model, Widgets};
 use relm4_macros::widget;
 
-use serde::{Serialize, Deserialize};
-use strum::IntoEnumIterator;
 use derivative::*;
+use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 use url::Url;
 
-use crate::{AppColorScheme, AppModel, AppMsg, slave::video::{VideoEncoder, VideoDecoder, ImageFormat, ColorspaceConversion, VideoCodec, VideoCodecProvider}};
+use crate::{
+    slave::video::{
+        ColorspaceConversion, ImageFormat, VideoCodec, VideoCodecProvider, VideoDecoder,
+        VideoEncoder,
+    },
+    AppColorScheme, AppModel, AppMsg,
+};
 
 pub fn get_data_path() -> PathBuf {
     const APP_DIR_NAME: &str = "rovhost";
@@ -69,48 +78,53 @@ pub fn get_image_path() -> PathBuf {
 #[derive(Derivative, Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[derivative(Default)]
 pub struct PreferencesModel {
-    #[derivative(Default(value="1"))]
+    #[derivative(Default(value = "1"))]
     pub initial_slave_num: u8,
     pub application_color_scheme: AppColorScheme,
-    #[derivative(Default(value="get_video_path()"))]
+    #[derivative(Default(value = "get_video_path()"))]
     pub video_save_path: PathBuf,
-    #[derivative(Default(value="get_image_path()"))]
+    #[derivative(Default(value = "get_image_path()"))]
     pub image_save_path: PathBuf,
-    #[derivative(Default(value="ImageFormat::JPEG"))]
+    #[derivative(Default(value = "ImageFormat::JPEG"))]
     pub image_save_format: ImageFormat,
     pub default_reencode_recording_video: bool,
     pub default_video_encoder: VideoEncoder,
-    #[derivative(Default(value="Url::from_str(\"http://192.168.137.219:8888\").unwrap()"))]
+    #[derivative(Default(value = "Url::from_str(\"http://192.168.137.219:8888\").unwrap()"))]
     pub default_slave_url: Url,
-    #[derivative(Default(value="Url::from_str(\"rtp://127.0.0.1:5600?encoding-name=H264\").unwrap()"))]
+    #[derivative(Default(
+        value = "Url::from_str(\"rtp://127.0.0.1:5600?encoding-name=H264\").unwrap()"
+    ))]
     pub default_video_url: Url,
-    #[derivative(Default(value="60"))]
+    #[derivative(Default(value = "60"))]
     pub default_input_sending_rate: u16,
-    #[derivative(Default(value="true"))]
+    #[derivative(Default(value = "true"))]
     pub default_keep_video_display_ratio: bool,
     pub default_video_decoder: VideoDecoder,
     pub default_colorspace_conversion: ColorspaceConversion,
-    #[derivative(Default(value="64"))]
+    #[derivative(Default(value = "64"))]
     pub param_tuner_graph_view_point_num_limit: u16,
-    #[derivative(Default(value="250"))]
+    #[derivative(Default(value = "250"))]
     pub param_tuner_graph_view_update_interval: u16,
-    #[derivative(Default(value="Duration::from_secs(10)"))]
+    #[derivative(Default(value = "Duration::from_secs(10)"))]
     pub pipeline_timeout: Duration,
-    #[derivative(Default(value="false"))]
+    #[derivative(Default(value = "false"))]
     pub default_appsink_queue_leaky_enabled: bool,
-    #[derivative(Default(value="false"))]
+    #[derivative(Default(value = "false"))]
     pub default_use_decodebin: bool,
-    #[derivative(Default(value="false"))]
+    #[derivative(Default(value = "false"))]
     pub video_sync_record_use_separate_directory: bool,
-    #[derivative(Default(value="200"))]
+    #[derivative(Default(value = "200"))]
     pub default_video_latency: u32,
-    #[derivative(Default(value="500"))]
+    #[derivative(Default(value = "500"))]
     pub default_status_info_update_interval: u16,
 }
 
 impl PreferencesModel {
     pub fn load_or_default() -> PreferencesModel {
-        match fs::read_to_string(get_preference_path()).ok().and_then(|json| serde_json::from_str(&json).ok()) {
+        match fs::read_to_string(get_preference_path())
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+        {
             Some(model) => model,
             None => Default::default(),
         }
@@ -557,17 +571,15 @@ impl Widgets<PreferencesModel, AppModel> for PreferencesWidgets {
             },
         }
     }
-    
-    fn post_init() {
-        
-    }
+
+    fn post_init() {}
 }
 
 impl ComponentUpdate<AppModel> for PreferencesModel {
     fn init_model(parent_model: &AppModel) -> Self {
         parent_model.preferences.borrow().clone()
     }
-    
+
     fn update(
         &mut self,
         msg: PreferencesMsg,
@@ -580,44 +592,86 @@ impl ComponentUpdate<AppModel> for PreferencesModel {
             PreferencesMsg::SetVideoSavePath(path) => self.set_video_save_path(path),
             PreferencesMsg::SetInitialSlaveNum(num) => self.set_initial_slave_num(num),
             PreferencesMsg::SetInputSendingRate(rate) => self.set_default_input_sending_rate(rate),
-            PreferencesMsg::SetDefaultKeepVideoDisplayRatio(value) => self.set_default_keep_video_display_ratio(value),
-            PreferencesMsg::SaveToFile => serde_json::to_string_pretty(&self).ok().and_then(|json| fs::write(get_preference_path(), json).ok()).unwrap(),
+            PreferencesMsg::SetDefaultKeepVideoDisplayRatio(value) => {
+                self.set_default_keep_video_display_ratio(value)
+            }
+            PreferencesMsg::SaveToFile => serde_json::to_string_pretty(&self)
+                .ok()
+                .and_then(|json| fs::write(get_preference_path(), json).ok())
+                .unwrap(),
             PreferencesMsg::SetImageSavePath(path) => self.set_image_save_path(path),
             PreferencesMsg::SetImageSaveFormat(format) => self.set_image_save_format(format),
-            PreferencesMsg::SetParameterTunerGraphViewPointNumberLimit(limit) => self.set_param_tuner_graph_view_point_num_limit(limit),
-            PreferencesMsg::OpenVideoDirectory => gtk::show_uri(None as Option<&PreferencesWindow>, glib::filename_to_uri(self.get_video_save_path().to_str().unwrap(), None).unwrap().as_str(), gdk::CURRENT_TIME),
-            PreferencesMsg::OpenImageDirectory => gtk::show_uri(None as Option<&PreferencesWindow>, glib::filename_to_uri(self.get_image_save_path().to_str().unwrap(), None).unwrap().as_str(), gdk::CURRENT_TIME),
-            PreferencesMsg::SetDefaultColorspaceConversion(conversion) => self.set_default_colorspace_conversion(conversion),
+            PreferencesMsg::SetParameterTunerGraphViewPointNumberLimit(limit) => {
+                self.set_param_tuner_graph_view_point_num_limit(limit)
+            }
+            PreferencesMsg::OpenVideoDirectory => gtk::show_uri(
+                None as Option<&PreferencesWindow>,
+                glib::filename_to_uri(self.get_video_save_path().to_str().unwrap(), None)
+                    .unwrap()
+                    .as_str(),
+                gdk::CURRENT_TIME,
+            ),
+            PreferencesMsg::OpenImageDirectory => gtk::show_uri(
+                None as Option<&PreferencesWindow>,
+                glib::filename_to_uri(self.get_image_save_path().to_str().unwrap(), None)
+                    .unwrap()
+                    .as_str(),
+                gdk::CURRENT_TIME,
+            ),
+            PreferencesMsg::SetDefaultColorspaceConversion(conversion) => {
+                self.set_default_colorspace_conversion(conversion)
+            }
             PreferencesMsg::SetDefaultVideoUrl(url) => self.default_video_url = url, // 防止输入框的光标移动至最前
             PreferencesMsg::SetDefaultSlaveUrl(url) => self.default_slave_url = url,
-            PreferencesMsg::SetDefaultVideoDecoderCodec(codec) => self.get_mut_default_video_decoder().0 = codec,
-            PreferencesMsg::SetDefaultVideoDecoderCodecProvider(provider) => self.get_mut_default_video_decoder().1 = provider,
+            PreferencesMsg::SetDefaultVideoDecoderCodec(codec) => {
+                self.get_mut_default_video_decoder().0 = codec
+            }
+            PreferencesMsg::SetDefaultVideoDecoderCodecProvider(provider) => {
+                self.get_mut_default_video_decoder().1 = provider
+            }
             PreferencesMsg::SetDefaultReencodeRecordingVideo(reencode) => {
                 if !reencode {
                     self.set_default_use_decodebin(false);
                 }
                 self.set_default_reencode_recording_video(reencode)
-            },
-            PreferencesMsg::SetDefaultVideoEncoderCodec(codec) => self.get_mut_default_video_encoder().0 = codec,
-            PreferencesMsg::SetDefaultVideoEncoderCodecProvider(provider) => self.get_mut_default_video_encoder().1 = provider,
+            }
+            PreferencesMsg::SetDefaultVideoEncoderCodec(codec) => {
+                self.get_mut_default_video_encoder().0 = codec
+            }
+            PreferencesMsg::SetDefaultVideoEncoderCodecProvider(provider) => {
+                self.get_mut_default_video_encoder().1 = provider
+            }
             PreferencesMsg::SetPipelineTimeout(timeout) => self.set_pipeline_timeout(timeout),
-            PreferencesMsg::SetDefaultAppSinkQueueLeakyEnabled(leaky) => self.set_default_appsink_queue_leaky_enabled(leaky),
+            PreferencesMsg::SetDefaultAppSinkQueueLeakyEnabled(leaky) => {
+                self.set_default_appsink_queue_leaky_enabled(leaky)
+            }
             PreferencesMsg::SetDefaultUseDecodebin(use_decodebin) => {
                 if use_decodebin {
                     self.set_default_reencode_recording_video(true);
                 }
                 self.set_default_use_decodebin(use_decodebin);
-            },
-            PreferencesMsg::SetVideoSyncRecordUseSeparateDirectory(use_separate_directory) => self.set_video_sync_record_use_separate_directory(use_separate_directory),
-            PreferencesMsg::SetDefaultVideoLatency(latency) => self.set_default_video_latency(latency),
+            }
+            PreferencesMsg::SetVideoSyncRecordUseSeparateDirectory(use_separate_directory) => {
+                self.set_video_sync_record_use_separate_directory(use_separate_directory)
+            }
+            PreferencesMsg::SetDefaultVideoLatency(latency) => {
+                self.set_default_video_latency(latency)
+            }
             PreferencesMsg::SetApplicationColorScheme(scheme) => {
                 if let Some(scheme) = scheme {
                     self.set_application_color_scheme(scheme);
                 }
-                send!(parent_sender, AppMsg::SetColorScheme(*self.get_application_color_scheme()));
-            },
-            PreferencesMsg::SetDefaultStatusInfoUpdateInterval(interval) => self.set_default_status_info_update_interval(interval),
-            PreferencesMsg::SetParamTunerGraphViewUpdateInterval(interval) => self.set_param_tuner_graph_view_update_interval(interval),
+                send!(
+                    parent_sender,
+                    AppMsg::SetColorScheme(*self.get_application_color_scheme())
+                );
+            }
+            PreferencesMsg::SetDefaultStatusInfoUpdateInterval(interval) => {
+                self.set_default_status_info_update_interval(interval)
+            }
+            PreferencesMsg::SetParamTunerGraphViewUpdateInterval(interval) => {
+                self.set_param_tuner_graph_view_update_interval(interval)
+            }
         }
         send!(parent_sender, AppMsg::PreferencesUpdated(self.clone()));
     }

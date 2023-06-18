@@ -16,35 +16,59 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-pub mod video;
+pub mod firmware_update;
 pub mod param_tuner;
+pub mod protocol;
 pub mod slave_config;
 pub mod slave_video;
-pub mod firmware_update;
-pub mod protocol;
+pub mod video;
 
-use std::{cell::RefCell, collections::{HashMap, VecDeque, HashSet, BTreeMap}, rc::Rc, sync::{Arc, Mutex}, fmt::Debug, time::{Duration, SystemTime}, error::Error, ops::Deref};
-use async_std::task::{JoinHandle, self};
+use async_std::task::{self, JoinHandle};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    error::Error,
+    fmt::Debug,
+    ops::Deref,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
+};
 
-use glib::{PRIORITY_DEFAULT, Sender, WeakRef, DateTime, MainContext};
+use adw::{ApplicationWindow, Flap, FlapFoldPolicy, Toast, ToastOverlay};
+use glib::{DateTime, MainContext, Sender, WeakRef, PRIORITY_DEFAULT};
 use glib_macros::clone;
-use gtk::{prelude::*, Align, Box as GtkBox, Button as GtkButton, CenterBox, CheckButton, Frame, Grid, Image, Label, ListBox, MenuButton, Orientation, Overlay, Popover, Revealer, Switch, ToggleButton, Widget, Separator, PackType, Inhibit};
-use adw::{ApplicationWindow, ToastOverlay, Toast, Flap, FlapFoldPolicy};
-use relm4::{WidgetPlus, factory::{FactoryPrototype, FactoryVec, positions::GridPosition}, send, MicroWidgets, MicroModel, MicroComponent};
+use gtk::{
+    prelude::*, Align, Box as GtkBox, Button as GtkButton, CenterBox, CheckButton, Frame, Grid,
+    Image, Inhibit, Label, ListBox, MenuButton, Orientation, Overlay, PackType, Popover, Revealer,
+    Separator, Switch, ToggleButton, Widget,
+};
+use relm4::{
+    factory::{positions::GridPosition, FactoryPrototype, FactoryVec},
+    send, MicroComponent, MicroModel, MicroWidgets, WidgetPlus,
+};
 use relm4_macros::micro_widget;
 
-use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee_core::{client::ClientT, Error as RpcError};
+use jsonrpsee_http_client::{HttpClient, HttpClientBuilder};
 
-use serde::{Serialize, Deserialize};
 use derivative::*;
+use serde::{Deserialize, Serialize};
 
-use crate::{input::{InputSource, InputSourceEvent, InputSystem, Button, Axis}, slave::param_tuner::SlaveParameterTunerMsg};
+use self::{
+    firmware_update::SlaveFirmwareUpdaterModel,
+    param_tuner::SlaveParameterTunerModel,
+    protocol::*,
+    slave_config::{SlaveConfigModel, SlaveConfigMsg},
+    slave_video::{SlaveVideoModel, SlaveVideoMsg},
+};
 use crate::preferences::PreferencesModel;
 use crate::ui::generic::error_message;
 use crate::AppMsg;
-use self::{param_tuner::SlaveParameterTunerModel, slave_config::{SlaveConfigModel, SlaveConfigMsg}, slave_video::{SlaveVideoModel, SlaveVideoMsg}, firmware_update::SlaveFirmwareUpdaterModel, protocol::*};
-
+use crate::{
+    input::{Axis, Button, InputSource, InputSourceEvent, InputSystem},
+    slave::param_tuner::SlaveParameterTunerMsg,
+};
 
 pub type RpcClient = HttpClient;
 pub type RpcClientBuilder = HttpClientBuilder;
@@ -55,16 +79,20 @@ pub type RpcParams = jsonrpsee_http_client::types::ParamsSer<'static>;
 #[derivative(Default)]
 pub struct SlaveModel {
     #[no_eq]
-    #[derivative(Default(value="MyComponent::new(Default::default(), MainContext::channel(PRIORITY_DEFAULT).0)"))]
+    #[derivative(Default(
+        value = "MyComponent::new(Default::default(), MainContext::channel(PRIORITY_DEFAULT).0)"
+    ))]
     pub config: MyComponent<SlaveConfigModel>,
     #[no_eq]
-    #[derivative(Default(value="MyComponent::new(Default::default(), MainContext::channel(PRIORITY_DEFAULT).0)"))]
+    #[derivative(Default(
+        value = "MyComponent::new(Default::default(), MainContext::channel(PRIORITY_DEFAULT).0)"
+    ))]
     pub video: MyComponent<SlaveVideoModel>,
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     pub connected: Option<bool>,
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     pub polling: Option<bool>,
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     pub recording: Option<bool>,
     pub sync_recording: bool,
     #[no_eq]
@@ -73,9 +101,9 @@ pub struct SlaveModel {
     #[no_eq]
     pub input_system: Rc<InputSystem>,
     #[no_eq]
-    #[derivative(Default(value="MainContext::channel(PRIORITY_DEFAULT).0"))]
+    #[derivative(Default(value = "MainContext::channel(PRIORITY_DEFAULT).0"))]
     pub input_event_sender: Sender<InputSourceEvent>,
-    #[derivative(Default(value="true"))]
+    #[derivative(Default(value = "true"))]
     pub slave_info_displayed: bool,
     #[no_eq]
     pub status: Arc<Mutex<HashMap<SlaveStatusClass, i16>>>,
@@ -85,7 +113,7 @@ pub struct SlaveModel {
     pub rpc_client: Option<async_std::sync::Arc<RpcClient>>,
     pub toast_messages: Rc<RefCell<VecDeque<String>>>,
     #[no_eq]
-    #[derivative(Default(value="FactoryVec::new()"))]
+    #[derivative(Default(value = "FactoryVec::new()"))]
     pub infos: FactoryVec<SlaveInfoModel>,
     pub config_presented: bool,
 }
@@ -120,15 +148,21 @@ impl FactoryPrototype for SlaveInfoModel {
         }
     }
 
-    fn position(&self, _index: &usize) {
-        
-    }
+    fn position(&self, _index: &usize) {}
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum SlaveStatusClass {
-    MotionX, MotionY, MotionZ, MotionRotate, RoboticArmOpen, RoboticArmClose,
-    DepthLocked, DirectionLocked,
+    MotionX,
+    MotionY,
+    MotionZ,
+    MotionRotate,
+    RoboticArmOpen,
+    RoboticArmClose,
+    LightOpen,
+    LightClose,
+    DepthLocked,
+    DirectionLocked,
 }
 
 impl SlaveStatusClass {
@@ -137,10 +171,11 @@ impl SlaveStatusClass {
             Button::LeftStick => Some(SlaveStatusClass::DepthLocked),
             Button::RightStick => Some(SlaveStatusClass::DirectionLocked),
             Button::RightShoulder => Some(SlaveStatusClass::RoboticArmOpen),
+            Button::LeftShoulder => Some(SlaveStatusClass::LightOpen),
             _ => None,
         }
     }
-    
+
     pub fn from_axis(axis: Axis) -> Option<SlaveStatusClass> {
         match axis {
             Axis::LeftX => Some(SlaveStatusClass::MotionX),
@@ -148,7 +183,7 @@ impl SlaveStatusClass {
             Axis::RightX => Some(SlaveStatusClass::MotionRotate),
             Axis::RightY => Some(SlaveStatusClass::MotionZ),
             Axis::TriggerRight => Some(SlaveStatusClass::RoboticArmClose),
-            _ => None
+            Axis::TriggerLeft => Some(SlaveStatusClass::LightClose),
         }
     }
 }
@@ -156,17 +191,25 @@ impl SlaveStatusClass {
 const JOYSTICK_DISPLAY_THRESHOLD: i16 = 500;
 
 impl SlaveModel {
-    pub fn new(config: SlaveConfigModel, preferences: Rc<RefCell<PreferencesModel>>, component_sender: &Sender<SlaveMsg>, input_event_sender: Sender<InputSourceEvent>) -> Self {
+    pub fn new(
+        config: SlaveConfigModel,
+        preferences: Rc<RefCell<PreferencesModel>>,
+        component_sender: &Sender<SlaveMsg>,
+        input_event_sender: Sender<InputSourceEvent>,
+    ) -> Self {
         Self {
             config: MyComponent::new(config.clone(), component_sender.clone()),
-            video: MyComponent::new(SlaveVideoModel::new(preferences.clone(), Arc::new(Mutex::new(config))), component_sender.clone()),
+            video: MyComponent::new(
+                SlaveVideoModel::new(preferences.clone(), Arc::new(Mutex::new(config))),
+                component_sender.clone(),
+            ),
             preferences,
             input_event_sender,
             status: Arc::new(Mutex::new(HashMap::new())),
             ..Default::default()
         }
     }
-    
+
     pub fn get_target_status_or_insert_0(&mut self, status_class: &SlaveStatusClass) -> i16 {
         let mut status = self.status.lock().unwrap();
         *status.entry(status_class.clone()).or_insert(0)
@@ -182,7 +225,11 @@ impl SlaveModel {
     }
 }
 
-pub fn input_sources_list_box(input_sources: &HashSet<InputSource>, input_system: &InputSystem, sender: &Sender<SlaveMsg>) -> Widget {
+pub fn input_sources_list_box(
+    input_sources: &HashSet<InputSource>,
+    input_system: &InputSystem,
+    sender: &Sender<SlaveMsg>,
+) -> Widget {
     let sources = input_system.get_sources().unwrap();
     if sources.is_empty() {
         return Label::builder()
@@ -191,7 +238,8 @@ pub fn input_sources_list_box(input_sources: &HashSet<InputSource>, input_system
             .margin_bottom(4)
             .margin_start(4)
             .margin_end(4)
-            .build().upcast();
+            .build()
+            .upcast();
     }
     let list_box = ListBox::builder().build();
     let mut radio_button_group: Option<CheckButton> = None;
@@ -284,7 +332,7 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                             set_popover = Some(&Popover) {
                                 set_child = Some(&GtkBox) {
                                     set_spacing: 5,
-                                    set_orientation: Orientation::Vertical, 
+                                    set_orientation: Orientation::Vertical,
                                     append = &CenterBox {
                                         set_center_widget = Some(&Label) {
                                             set_margin_start: 10,
@@ -303,7 +351,7 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                                     append = &Frame {
                                         set_child: track!(model.changed(SlaveModel::input_system()), Some(&input_sources_list_box(&model.input_sources, &model.input_system ,&sender))),
                                     },
-                                    
+
                                 },
                             },
                         },
@@ -364,7 +412,7 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                             set_valign: Align::Start,
                             set_halign: Align::End,
                             set_hexpand: true,
-                            set_margin_all: 20, 
+                            set_margin_all: 20,
                             append = &Frame {
                                 add_css_class: "card",
                                 set_child = Some(&GtkBox) {
@@ -555,95 +603,109 @@ pub enum SlaveCommunicationMsg {
     Block(JoinHandle<Result<(), Box<dyn Error + Send>>>),
 }
 
-async fn communication_main_loop(input_rate: u16,
-                                 rpc_client: Arc<RpcClient>,
-                                 communication_sender: async_std::channel::Sender<SlaveCommunicationMsg>,
-                                 communication_receiver: async_std::channel::Receiver<SlaveCommunicationMsg>,
-                                 slave_sender: Sender<SlaveMsg>,
-                                 status_info_udpate_interval: u64) -> Result<(), RpcError> {
+async fn communication_main_loop(
+    input_rate: u16,
+    rpc_client: Arc<RpcClient>,
+    communication_sender: async_std::channel::Sender<SlaveCommunicationMsg>,
+    communication_receiver: async_std::channel::Receiver<SlaveCommunicationMsg>,
+    slave_sender: Sender<SlaveMsg>,
+    status_info_udpate_interval: u64,
+) -> Result<(), RpcError> {
     fn current_millis() -> u128 {
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis()
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
     }
-    send!(slave_sender, SlaveMsg::ConnectionChanged(Some(rpc_client.clone())));
-    
-    let idle = async_std::sync::Arc::new(async_std::sync::Mutex::new(true));
-    let last_action_timestamp = async_std::sync::Arc::new(async_std::sync::Mutex::new(current_millis()));
-    let control_packet = async_std::sync::Arc::new(async_std::sync::Mutex::new(None as Option<ControlPacket>));
+    send!(
+        slave_sender,
+        SlaveMsg::ConnectionChanged(Some(rpc_client.clone()))
+    );
 
-    let receive_task = task::spawn(clone!(@strong communication_sender, @strong idle, @strong slave_sender, @strong rpc_client => async move {
-        loop {
-            if communication_sender.is_closed() {
-                return;
-            }
-            if *idle.lock().await {
-                match rpc_client.request::<HashMap<String, String>>(METHOD_GET_INFO, None).await {
-                    Ok(info) => send!(slave_sender, SlaveMsg::InformationsReceived(info)),
-                    Err(error) => {
-                        communication_sender.send(SlaveCommunicationMsg::ConnectionLost(error)).await.unwrap_or_default();
-                        break;
-                    },
+    let idle = async_std::sync::Arc::new(async_std::sync::Mutex::new(true));
+    let last_action_timestamp =
+        async_std::sync::Arc::new(async_std::sync::Mutex::new(current_millis()));
+    let control_packet =
+        async_std::sync::Arc::new(async_std::sync::Mutex::new(None as Option<ControlPacket>));
+
+    let receive_task = task::spawn(
+        clone!(@strong communication_sender, @strong idle, @strong slave_sender, @strong rpc_client => async move {
+            loop {
+                if communication_sender.is_closed() {
+                    return;
                 }
+                if *idle.lock().await {
+                    match rpc_client.request::<HashMap<String, String>>(METHOD_GET_INFO, None).await {
+                        Ok(info) => send!(slave_sender, SlaveMsg::InformationsReceived(info)),
+                        Err(error) => {
+                            communication_sender.send(SlaveCommunicationMsg::ConnectionLost(error)).await.unwrap_or_default();
+                            break;
+                        },
+                    }
+                }
+                task::sleep(Duration::from_millis(status_info_udpate_interval)).await;
             }
-            task::sleep(Duration::from_millis(status_info_udpate_interval)).await;
-        }
-    }));                        // 定时请求数据
-    let control_send_task = task::spawn(clone!(@strong idle, @strong communication_sender, @strong rpc_client, @strong control_packet => async move {
-        loop {
-            if communication_sender.is_closed() {
-                return;
-            }
-            if *idle.lock().await {
-                let mut control_mutex = control_packet.lock().await;
-                if let Some(control) = control_mutex.as_ref() {
-                    for (method, params) in vec![(METHOD_MOVE, Some(control.motion.to_rpc_params())),
-                                                 (METHOD_SET_DEPTH_LOCKED, Some(control.depth_locked.to_rpc_params())),
-                                                 (METHOD_SET_DIRECTION_LOCKED, Some(control.direction_locked.to_rpc_params())),
-                                                 (METHOD_CATCH, Some(control.catch.to_rpc_params())),].into_iter() {
-                        match rpc_client.request::<()>(method, params).await {
-                            Ok(_) => *control_mutex = None,
-                            Err(err) => {
-                                communication_sender.send(SlaveCommunicationMsg::ConnectionLost(err)).await.unwrap_or_default();
+        }),
+    ); // 定时请求数据
+    let control_send_task = task::spawn(
+        clone!(@strong idle, @strong communication_sender, @strong rpc_client, @strong control_packet => async move {
+            loop {
+                if communication_sender.is_closed() {
+                    return;
+                }
+                if *idle.lock().await {
+                    let mut control_mutex = control_packet.lock().await;
+                    if let Some(control) = control_mutex.as_ref() {
+                        for (method, params) in vec![(METHOD_MOVE, Some(control.motion.to_rpc_params())),
+                                                     (METHOD_SET_DEPTH_LOCKED, Some(control.depth_locked.to_rpc_params())),
+                                                     (METHOD_SET_DIRECTION_LOCKED, Some(control.direction_locked.to_rpc_params())),
+                                                     (METHOD_CATCH, Some(control.catch.to_rpc_params())),
+                                                     (METHOD_LIGHT, Some(control.light.to_rpc_params())),
+                        ].into_iter() {
+                            match rpc_client.request::<()>(method, params).await {
+                                Ok(_) => *control_mutex = None,
+                                Err(err) => {
+                                    communication_sender.send(SlaveCommunicationMsg::ConnectionLost(err)).await.unwrap_or_default();
+                                }
                             }
                         }
-                    }
 
+                    }
                 }
+                task::sleep(Duration::from_millis(1000 / input_rate as u64)).await;
             }
-            task::sleep(Duration::from_millis(1000 / input_rate as u64)).await;
-        }
-    }));
-    
+        }),
+    );
+
     loop {
         match communication_receiver.recv().await {
-            Ok(msg) if *idle.lock().await => {
-                match msg {
-                    SlaveCommunicationMsg::Disconnect => {
-                        control_send_task.cancel().await;
-                        receive_task.cancel().await;
-                        send!(slave_sender, SlaveMsg::ConnectionChanged(None));
-                        communication_receiver.close();
-                        break;
-                    },
-                    SlaveCommunicationMsg::ConnectionLost(err) => {
-                        control_send_task.cancel().await;
-                        receive_task.cancel().await;
-                        send!(slave_sender, SlaveMsg::CommunicationError(err.to_string()));
-                        communication_receiver.close();
-                        return Err(err);
-                    },
-                    SlaveCommunicationMsg::ControlUpdated(control) => {
-                        *control_packet.lock().await = Some(control);
-                        *last_action_timestamp.lock().await = current_millis();
-                    },
-                    SlaveCommunicationMsg::Block(blocker) => {
-                        *idle.lock().await = false;
-                        task::spawn(clone!(@strong idle => async move {
-                            if let Err(err) = blocker.await {
-                                eprintln!("模块异常退出：{}", err);
-                            }
-                            *idle.lock().await = true;
-                        }));
-                    },
+            Ok(msg) if *idle.lock().await => match msg {
+                SlaveCommunicationMsg::Disconnect => {
+                    control_send_task.cancel().await;
+                    receive_task.cancel().await;
+                    send!(slave_sender, SlaveMsg::ConnectionChanged(None));
+                    communication_receiver.close();
+                    break;
+                }
+                SlaveCommunicationMsg::ConnectionLost(err) => {
+                    control_send_task.cancel().await;
+                    receive_task.cancel().await;
+                    send!(slave_sender, SlaveMsg::CommunicationError(err.to_string()));
+                    communication_receiver.close();
+                    return Err(err);
+                }
+                SlaveCommunicationMsg::ControlUpdated(control) => {
+                    *control_packet.lock().await = Some(control);
+                    *last_action_timestamp.lock().await = current_millis();
+                }
+                SlaveCommunicationMsg::Block(blocker) => {
+                    *idle.lock().await = false;
+                    task::spawn(clone!(@strong idle => async move {
+                        if let Err(err) = blocker.await {
+                            eprintln!("模块异常退出：{}", err);
+                        }
+                        *idle.lock().await = true;
+                    }));
                 }
             },
             _ => (),
@@ -656,111 +718,153 @@ impl MicroModel for SlaveModel {
     type Msg = SlaveMsg;
     type Widgets = SlaveWidgets;
     type Data = (Sender<AppMsg>, WeakRef<ApplicationWindow>);
-    fn update(&mut self, msg: SlaveMsg, (parent_sender, app_window): &Self::Data, sender: Sender<SlaveMsg>) {
+    fn update(
+        &mut self,
+        msg: SlaveMsg,
+        (parent_sender, app_window): &Self::Data,
+        sender: Sender<SlaveMsg>,
+    ) {
         self.reset();
         match msg {
             SlaveMsg::ConfigUpdated => {
                 let config = self.get_mut_config().model().clone();
                 send!(self.video.sender(), SlaveVideoMsg::ConfigUpdated(config));
-            },
+            }
             SlaveMsg::ToggleConnect => {
                 match self.get_connected() {
-                    Some(true) => { // 断开连接
+                    Some(true) => {
+                        // 断开连接
                         self.set_connected(None);
-                        self.config.send(SlaveConfigMsg::SetConnected(None)).unwrap();
+                        self.config
+                            .send(SlaveConfigMsg::SetConnected(None))
+                            .unwrap();
                         let sender = self.get_communication_msg_sender().clone().unwrap();
                         task::spawn(async move {
-                            sender.send(SlaveCommunicationMsg::Disconnect).await.expect("Communication main loop should be running");
+                            sender
+                                .send(SlaveCommunicationMsg::Disconnect)
+                                .await
+                                .expect("Communication main loop should be running");
                         });
-                    },
-                    Some(false) => { // 连接
+                    }
+                    Some(false) => {
+                        // 连接
                         let url = self.config.model().get_slave_url().clone();
                         if let ("http", url_str) = (url.scheme(), url.as_str()) {
                             if let Ok(rpc_client) = RpcClientBuilder::default().build(url_str) {
-                                let (comm_sender, comm_receiver) = async_std::channel::bounded::<SlaveCommunicationMsg>(128);
+                                let (comm_sender, comm_receiver) =
+                                    async_std::channel::bounded::<SlaveCommunicationMsg>(128);
                                 self.set_communication_msg_sender(Some(comm_sender.clone()));
                                 let sender = sender.clone();
-                                let control_sending_rate = *self.preferences.borrow().get_default_input_sending_rate();
+                                let control_sending_rate =
+                                    *self.preferences.borrow().get_default_input_sending_rate();
                                 self.set_connected(None);
-                                self.config.send(SlaveConfigMsg::SetConnected(None)).unwrap();
-                                let status_info_update_interval = *self.preferences.borrow().get_default_status_info_update_interval();
+                                self.config
+                                    .send(SlaveConfigMsg::SetConnected(None))
+                                    .unwrap();
+                                let status_info_update_interval = *self
+                                    .preferences
+                                    .borrow()
+                                    .get_default_status_info_update_interval();
                                 async_std::task::spawn(async move {
-                                    communication_main_loop(control_sending_rate,
-                                                            Arc::new(rpc_client),
-                                                            comm_sender,
-                                                            comm_receiver,
-                                                            sender.clone(),
-                                                            status_info_update_interval as u64).await.unwrap_or_default();
+                                    communication_main_loop(
+                                        control_sending_rate,
+                                        Arc::new(rpc_client),
+                                        comm_sender,
+                                        comm_receiver,
+                                        sender.clone(),
+                                        status_info_update_interval as u64,
+                                    )
+                                    .await
+                                    .unwrap_or_default();
                                 });
                             } else {
-                                error_message("错误", "无法创建 RPC 客户端。", app_window.upgrade().as_ref());
+                                error_message(
+                                    "错误",
+                                    "无法创建 RPC 客户端。",
+                                    app_window.upgrade().as_ref(),
+                                );
                             }
                         } else {
-                            error_message("错误", "连接 URL 有误，请检查并修改后重试 。", app_window.upgrade().as_ref());
+                            error_message(
+                                "错误",
+                                "连接 URL 有误，请检查并修改后重试 。",
+                                app_window.upgrade().as_ref(),
+                            );
                         }
-                    },
+                    }
                     None => (),
                 }
-            },
-            SlaveMsg::TogglePolling => {
-                match self.get_polling() {
-                    Some(true) =>{
-                        self.video.send(SlaveVideoMsg::StopPipeline).unwrap();
-                        self.set_polling(None);
-                        self.config.send(SlaveConfigMsg::SetPolling(None)).unwrap();
-                    },
-                    Some(false) => {
-                        self.video.send(SlaveVideoMsg::StartPipeline).unwrap();
-                        self.set_polling(None);
-                        self.config.send(SlaveConfigMsg::SetPolling(None)).unwrap();
-                    },
-                    None => (),
+            }
+            SlaveMsg::TogglePolling => match self.get_polling() {
+                Some(true) => {
+                    self.video.send(SlaveVideoMsg::StopPipeline).unwrap();
+                    self.set_polling(None);
+                    self.config.send(SlaveConfigMsg::SetPolling(None)).unwrap();
                 }
+                Some(false) => {
+                    self.video.send(SlaveVideoMsg::StartPipeline).unwrap();
+                    self.set_polling(None);
+                    self.config.send(SlaveConfigMsg::SetPolling(None)).unwrap();
+                }
+                None => (),
             },
             SlaveMsg::AddInputSource(source) => {
                 self.get_mut_input_sources().insert(source);
-            },
+            }
             SlaveMsg::RemoveInputSource(source) => {
                 self.get_mut_input_sources().remove(&source);
-            },
+            }
             SlaveMsg::UpdateInputSources => {
-                self.get_mut_input_system();
-            },
+                let _unuse = self.get_mut_input_system();
+            }
             SlaveMsg::ToggleDisplayInfo => {
                 self.set_slave_info_displayed(!*self.get_slave_info_displayed());
-            },
+            }
             SlaveMsg::InputReceived(event) => {
                 match event {
                     InputSourceEvent::ButtonChanged(button, pressed) => {
                         match SlaveStatusClass::from_button(button) {
-                            Some(status_class @ SlaveStatusClass::RoboticArmOpen) => {
+                            Some(status_class @ SlaveStatusClass::RoboticArmOpen)
+                            | Some(status_class @ SlaveStatusClass::LightOpen) => {
                                 self.set_target_status(&status_class, if pressed { 1 } else { 0 });
-                            },
+                            }
                             Some(status_class) => {
                                 if pressed {
-                                    self.set_target_status(&status_class, !(self.get_target_status(&status_class) != 0) as i16);
+                                    self.set_target_status(
+                                        &status_class,
+                                        !(self.get_target_status(&status_class) != 0) as i16,
+                                    );
                                 }
-                            },
+                            }
                             None => (),
                         }
-                    },
+                    }
                     InputSourceEvent::AxisChanged(axis, value) => {
                         match SlaveStatusClass::from_axis(axis) {
-                            Some(status_class @ SlaveStatusClass::RoboticArmClose) => {
-                                match value {
-                                    1..=i16::MAX => self.set_target_status(&status_class, 1),
-                                    i16::MIN..=0 => self.set_target_status(&status_class, 0),
-                                }
+                            Some(status_class @ SlaveStatusClass::RoboticArmClose)
+                            | Some(status_class @ SlaveStatusClass::LightClose) => match value {
+                                1..=i16::MAX => self.set_target_status(&status_class, 1),
+                                i16::MIN..=0 => self.set_target_status(&status_class, 0),
                             },
                             Some(status_class) => {
-                                self.set_target_status(&status_class, value.saturating_mul(if axis == Axis::LeftY || axis == Axis::RightY { -1 } else { 1 }));
-                            },
+                                self.set_target_status(
+                                    &status_class,
+                                    value.saturating_mul(
+                                        if axis == Axis::LeftY || axis == Axis::RightY {
+                                            -1
+                                        } else {
+                                            1
+                                        },
+                                    ),
+                                );
+                            }
                             None => (),
                         }
-                    },
+                    }
                 }
                 if let Some(sender) = self.get_communication_msg_sender() {
-                    let mut control_packet = ControlPacket::from_status_map(&self.get_status().lock().unwrap());
+                    let mut control_packet =
+                        ControlPacket::from_status_map(&self.get_status().lock().unwrap());
                     if *self.config.model().get_swap_xy() {
                         std::mem::swap(&mut control_packet.motion.x, &mut control_packet.motion.y);
                     }
@@ -769,34 +873,54 @@ impl MicroModel for SlaveModel {
                         Err(err) => println!("无法发送控制输入：{}", err.to_string()),
                     }
                 }
-            },
-            SlaveMsg::OpenFirmwareUpater => {
-                match self.get_rpc_client() {
-                    Some(rpc_client) => {
-                        let component = MicroComponent::new(SlaveFirmwareUpdaterModel::new(Deref::deref(rpc_client).clone()), sender.clone());
-                        let window = component.root_widget();
-                        window.set_transient_for(app_window.upgrade().as_ref());
-                        window.set_visible(true);
-                    },
-                    None => {
-                        error_message("错误", "请确保下位机处于连接状态。", app_window.upgrade().as_ref());
-                    },
+            }
+            SlaveMsg::OpenFirmwareUpater => match self.get_rpc_client() {
+                Some(rpc_client) => {
+                    let component = MicroComponent::new(
+                        SlaveFirmwareUpdaterModel::new(Deref::deref(rpc_client).clone()),
+                        sender.clone(),
+                    );
+                    let window = component.root_widget();
+                    window.set_transient_for(app_window.upgrade().as_ref());
+                    window.set_visible(true);
+                }
+                None => {
+                    error_message(
+                        "错误",
+                        "请确保下位机处于连接状态。",
+                        app_window.upgrade().as_ref(),
+                    );
                 }
             },
-            SlaveMsg::OpenParameterTuner => {
-                match self.get_rpc_client() {
-                    Some(rpc_client) => {
-                        let component = MicroComponent::new(SlaveParameterTunerModel::new(*self.preferences.borrow().get_param_tuner_graph_view_point_num_limit(),
-                                                                                          *self.preferences.borrow().get_param_tuner_graph_view_update_interval()),
-                                                            sender.clone());
-                        let window = component.root_widget();
-                        window.set_transient_for(app_window.upgrade().as_ref());
-                        window.set_visible(true);
-                        send!(component.sender(), SlaveParameterTunerMsg::StartDebug(Deref::deref(rpc_client).clone()));
-                    },
-                    None => {
-                        error_message("错误", "请确保下位机处于连接状态。", app_window.upgrade().as_ref());
-                    },
+            SlaveMsg::OpenParameterTuner => match self.get_rpc_client() {
+                Some(rpc_client) => {
+                    let component = MicroComponent::new(
+                        SlaveParameterTunerModel::new(
+                            *self
+                                .preferences
+                                .borrow()
+                                .get_param_tuner_graph_view_point_num_limit(),
+                            *self
+                                .preferences
+                                .borrow()
+                                .get_param_tuner_graph_view_update_interval(),
+                        ),
+                        sender.clone(),
+                    );
+                    let window = component.root_widget();
+                    window.set_transient_for(app_window.upgrade().as_ref());
+                    window.set_visible(true);
+                    send!(
+                        component.sender(),
+                        SlaveParameterTunerMsg::StartDebug(Deref::deref(rpc_client).clone())
+                    );
+                }
+                None => {
+                    error_message(
+                        "错误",
+                        "请确保下位机处于连接状态。",
+                        app_window.upgrade().as_ref(),
+                    );
                 }
             },
             SlaveMsg::DestroySlave => {
@@ -811,41 +935,56 @@ impl MicroModel for SlaveModel {
                     }
                 }
                 send!(parent_sender, AppMsg::DestroySlave(self as *const Self));
-            },
+            }
             SlaveMsg::ErrorMessage(msg) => {
                 error_message("错误", &msg, app_window.upgrade().as_ref());
-            },
+            }
             SlaveMsg::CommunicationError(msg) => {
-                send!(sender, SlaveMsg::ShowToastMessage(format!("下位机通讯错误：{}", msg)));
+                send!(
+                    sender,
+                    SlaveMsg::ShowToastMessage(format!("下位机通讯错误：{}", msg))
+                );
                 send!(sender, SlaveMsg::ConnectionChanged(None));
-            },
+            }
             SlaveMsg::ConnectionChanged(rpc_client) => {
                 self.set_connected(Some(rpc_client.is_some()));
-                self.config.send(SlaveConfigMsg::SetConnected(Some(rpc_client.is_some()))).unwrap();
+                self.config
+                    .send(SlaveConfigMsg::SetConnected(Some(rpc_client.is_some())))
+                    .unwrap();
                 if rpc_client.is_none() {
                     self.set_communication_msg_sender(None);
                 }
                 self.set_rpc_client(rpc_client);
-            },
+            }
             SlaveMsg::ShowToastMessage(msg) => {
                 self.get_mut_toast_messages().borrow_mut().push_back(msg);
-            },
-	    SlaveMsg::ToggleRecord => {
+            }
+            SlaveMsg::ToggleRecord => {
                 let video = &self.video;
                 if video.model().get_record_handle().is_none() {
                     let mut pathbuf = self.preferences.borrow().get_video_save_path().clone();
-                    pathbuf.push(format!("{}.mkv", DateTime::now_local().unwrap().format_iso8601().unwrap().replace(":", "-")));
+                    pathbuf.push(format!(
+                        "{}.mkv",
+                        DateTime::now_local()
+                            .unwrap()
+                            .format_iso8601()
+                            .unwrap()
+                            .replace(":", "-")
+                    ));
                     send!(video.sender(), SlaveVideoMsg::StartRecord(pathbuf));
                 } else {
                     send!(video.sender(), SlaveVideoMsg::StopRecord(None));
                 }
                 self.set_recording(None);
-            },
+            }
             SlaveMsg::PollingChanged(polling) => {
                 self.set_polling(Some(polling));
-                send!(self.config.sender(), SlaveConfigMsg::SetPolling(Some(polling)));
+                send!(
+                    self.config.sender(),
+                    SlaveConfigMsg::SetPolling(Some(polling))
+                );
                 // send!(sender, SlaveMsg::InformationsReceived([("航向角".to_string(), "37°".to_string()), ("温度".to_string(), "25℃".to_string())].into_iter().collect())) // Debug
-            },
+            }
             SlaveMsg::RecordingChanged(recording) => {
                 if recording {
                     if *self.get_recording() == Some(false) {
@@ -855,37 +994,51 @@ impl MicroModel for SlaveModel {
                     self.set_sync_recording(false);
                 }
                 self.set_recording(Some(recording));
-            },
+            }
             SlaveMsg::TakeScreenshot => {
                 let mut pathbuf = self.preferences.borrow().get_image_save_path().clone();
                 let format = self.preferences.borrow().get_image_save_format().clone();
-                pathbuf.push(format!("{}.{}", DateTime::now_local().unwrap().format_iso8601().unwrap().replace(":", "-"), format.extension()));
+                pathbuf.push(format!(
+                    "{}.{}",
+                    DateTime::now_local()
+                        .unwrap()
+                        .format_iso8601()
+                        .unwrap()
+                        .replace(":", "-"),
+                    format.extension()
+                ));
                 send!(self.video.sender(), SlaveVideoMsg::SaveScreenshot(pathbuf));
-            },
+            }
             SlaveMsg::CommunicationMessage(msg) => {
                 if let Some(sender) = self.get_communication_msg_sender().as_ref() {
                     sender.try_send(msg).unwrap_or_default();
                 }
-            },
+            }
             SlaveMsg::InformationsReceived(info_map) => {
                 let infos = self.get_mut_infos();
                 let mut sorted_infos = info_map.into_iter().collect::<Vec<_>>();
                 sorted_infos.sort();
                 infos.clear();
                 for (key, value) in sorted_infos.into_iter() {
-                    infos.push(SlaveInfoModel { key, value, ..Default::default() });
+                    infos.push(SlaveInfoModel {
+                        key,
+                        value,
+                        ..Default::default()
+                    });
                 }
-            },
+            }
             SlaveMsg::SetConfigPresented(presented) => self.set_config_presented(presented),
             SlaveMsg::SetSlaveStatus(which, value) => {
                 self.set_target_status(&which, value);
                 if let Some(sender) = self.get_communication_msg_sender() {
-                    match sender.try_send(SlaveCommunicationMsg::ControlUpdated(ControlPacket::from_status_map(&self.get_status().lock().unwrap()))) {
+                    match sender.try_send(SlaveCommunicationMsg::ControlUpdated(
+                        ControlPacket::from_status_map(&self.get_status().lock().unwrap()),
+                    )) {
                         Ok(_) => (),
                         Err(err) => println!("无法更新机位状态：{}", err.to_string()),
                     }
                 }
-            },
+            }
         }
     }
 }
@@ -894,12 +1047,13 @@ pub struct MyComponent<T: MicroModel> {
     pub component: MicroComponent<T>,
 }
 
-impl <Model> MyComponent<Model>
+impl<Model> MyComponent<Model>
 where
     Model::Widgets: MicroWidgets<Model> + 'static,
     Model::Msg: 'static,
     Model::Data: 'static,
-    Model: MicroModel + 'static,  {
+    Model: MicroModel + 'static,
+{
     fn model(&self) -> std::cell::Ref<'_, Model> {
         self.component.model().unwrap()
     }
@@ -913,39 +1067,44 @@ where
     }
 }
 
-impl <T: MicroModel> std::ops::Deref for MyComponent<T> {
+impl<T: MicroModel> std::ops::Deref for MyComponent<T> {
     type Target = MicroComponent<T>;
     fn deref(&self) -> &MicroComponent<T> {
         &self.component
     }
 }
 
-
-impl <T: MicroModel> Debug for MyComponent<T> {
+impl<T: MicroModel> Debug for MyComponent<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MyComponent").finish()
     }
 }
 
-impl <Model> Default for MyComponent<Model>
+impl<Model> Default for MyComponent<Model>
 where
     Model::Widgets: MicroWidgets<Model> + 'static,
     Model::Msg: 'static,
     Model::Data: Default + 'static,
-    Model: MicroModel + Default + 'static, {
+    Model: MicroModel + Default + 'static,
+{
     fn default() -> Self {
-        MyComponent { component: MicroComponent::new(Model::default(), Model::Data::default()) }
+        MyComponent {
+            component: MicroComponent::new(Model::default(), Model::Data::default()),
+        }
     }
 }
 
-impl <Model> MyComponent<Model>
+impl<Model> MyComponent<Model>
 where
     Model::Widgets: MicroWidgets<Model> + 'static,
     Model::Msg: 'static,
     Model::Data: 'static,
-    Model: MicroModel + 'static, {
+    Model: MicroModel + 'static,
+{
     pub fn new(model: Model, data: Model::Data) -> MyComponent<Model> {
-        MyComponent { component: MicroComponent::new(model, data) }
+        MyComponent {
+            component: MicroComponent::new(model, data),
+        }
     }
 }
 
@@ -956,18 +1115,11 @@ impl FactoryPrototype for MyComponent<SlaveModel> {
     type View = Grid;
     type Msg = AppMsg;
 
-    fn init_view(
-        &self,
-        _index: &usize,
-        _sender: Sender<AppMsg>,
-    ) -> ToastOverlay {
+    fn init_view(&self, _index: &usize, _sender: Sender<AppMsg>) -> ToastOverlay {
         self.component.root_widget().clone()
     }
 
-    fn position(
-        &self,
-        index: &usize,
-    ) -> GridPosition {
+    fn position(&self, index: &usize) -> GridPosition {
         let index = *index as i32;
         let row = index / 3;
         let column = index % 3;
@@ -979,11 +1131,7 @@ impl FactoryPrototype for MyComponent<SlaveModel> {
         }
     }
 
-    fn view(
-        &self,
-        _index: &usize,
-        _widgets: &ToastOverlay,
-    ) {
+    fn view(&self, _index: &usize, _widgets: &ToastOverlay) {
         self.component.update_view().unwrap();
     }
 
@@ -1004,6 +1152,7 @@ pub struct MotionPacket {
 pub struct ControlPacket {
     motion: MotionPacket,
     catch: f32,
+    light: f32,
     depth_locked: bool,
     direction_locked: bool,
 }
@@ -1014,19 +1163,39 @@ impl ControlPacket {
             match *value {
                 0 => 0.0,
                 1..=i16::MAX => *value as f32 / i16::MAX as f32,
-                i16::MIN..=-1 =>  *value as f32 / i16::MIN as f32 * -1.0,
+                i16::MIN..=-1 => *value as f32 / i16::MIN as f32 * -1.0,
             }
         }
         ControlPacket {
-            motion           : MotionPacket {
-                x                : map_value(status_map.get(&SlaveStatusClass::MotionX).unwrap_or(&0)),
-                y                : map_value(status_map.get(&SlaveStatusClass::MotionY).unwrap_or(&0)),
-                z                : map_value(status_map.get(&SlaveStatusClass::MotionZ).unwrap_or(&0)),
-                rot              : map_value(status_map.get(&SlaveStatusClass::MotionRotate).unwrap_or(&0)),
+            motion: MotionPacket {
+                x: map_value(status_map.get(&SlaveStatusClass::MotionX).unwrap_or(&0)),
+                y: map_value(status_map.get(&SlaveStatusClass::MotionY).unwrap_or(&0)),
+                z: map_value(status_map.get(&SlaveStatusClass::MotionZ).unwrap_or(&0)),
+                rot: map_value(
+                    status_map
+                        .get(&SlaveStatusClass::MotionRotate)
+                        .unwrap_or(&0),
+                ),
             },
-            catch            : (*status_map.get(&SlaveStatusClass::RoboticArmOpen).unwrap_or(&0) * 1 + *status_map.get(&SlaveStatusClass::RoboticArmClose).unwrap_or(&0) * -1) as f32,
-            depth_locked     : status_map.get(&SlaveStatusClass::DepthLocked).map(|x| *x >= 1).unwrap_or(false),
-            direction_locked : status_map.get(&SlaveStatusClass::DirectionLocked).map(|x| *x >= 1).unwrap_or(false),
+            catch: (*status_map
+                .get(&SlaveStatusClass::RoboticArmOpen)
+                .unwrap_or(&0)
+                * 1
+                + *status_map
+                    .get(&SlaveStatusClass::RoboticArmClose)
+                    .unwrap_or(&0)
+                    * -1) as f32,
+            light: (*status_map.get(&SlaveStatusClass::LightOpen).unwrap_or(&0) * 1
+                + *status_map.get(&SlaveStatusClass::LightClose).unwrap_or(&0) * -1)
+                as f32,
+            depth_locked: status_map
+                .get(&SlaveStatusClass::DepthLocked)
+                .map(|x| *x >= 1)
+                .unwrap_or(false),
+            direction_locked: status_map
+                .get(&SlaveStatusClass::DirectionLocked)
+                .map(|x| *x >= 1)
+                .unwrap_or(false),
         }
     }
 }
@@ -1041,11 +1210,14 @@ pub trait AsRpcParams {
     fn to_rpc_params(&self) -> RpcParams;
 }
 
-
-impl <T: Serialize> AsRpcParams for T {
+impl<T: Serialize> AsRpcParams for T {
     fn to_rpc_params(&self) -> RpcParams {
         match serde_json::to_value(self).unwrap() {
-            serde_json::Value::Object(map) => map.into_iter().map(|(key, value)| ((Box::leak(Box::new(key)) as &'static str), value)).collect::<BTreeMap<_, _>>().into(),
+            serde_json::Value::Object(map) => map
+                .into_iter()
+                .map(|(key, value)| ((Box::leak(Box::new(key)) as &'static str), value))
+                .collect::<BTreeMap<_, _>>()
+                .into(),
             serde_json::Value::Array(vec) => vec.into(),
             x => vec![x].into(),
         }

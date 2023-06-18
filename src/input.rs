@@ -16,12 +16,20 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc, sync::{Arc, Mutex}, time::Duration, ops::Deref};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Debug,
+    ops::Deref,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use glib::{Continue, Sender};
 
-use sdl2::{Sdl, event::Event, GameControllerSubsystem};
 use fragile::Fragile;
+use sdl2::{event::Event, GameControllerSubsystem, Sdl};
 
 use lazy_static::lazy_static;
 
@@ -35,7 +43,8 @@ pub enum InputSource {
 }
 
 pub enum InputSystemMessage {
-    RetrieveJoystickList, Connect(u32)
+    RetrieveJoystickList,
+    Connect(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +70,16 @@ pub struct InputSystem {
 impl InputSystem {
     pub fn get_sources(&self) -> Result<Vec<(InputSource, String)>, String> {
         let num = self.game_controller_subsystem.num_joysticks()?;
-        Ok((0..num).map(|index| (InputSource::GameController(index), self.game_controller_subsystem.name_for_index(index).unwrap_or("未知设备".to_string()))).collect())
+        Ok((0..num)
+            .map(|index| {
+                (
+                    InputSource::GameController(index),
+                    self.game_controller_subsystem
+                        .name_for_index(index)
+                        .unwrap_or("未知设备".to_string()),
+                )
+            })
+            .collect())
     }
 }
 
@@ -99,16 +117,26 @@ impl InputSystem {
 
     pub fn run(&self) {
         if *self.running.lock().unwrap() {
-            return
+            return;
         }
-        
-        let available = self.game_controller_subsystem
+
+        let available = self
+            .game_controller_subsystem
             .num_joysticks()
-            .map_err(|e| format!("Can't enumerate joysticks: {}", e)).unwrap();
-        for (id, game_controller) in (0..available).filter_map(|id| self.game_controller_subsystem.open(id).ok().map(|c| (id, c))) {
-            self.game_controllers.lock().unwrap().insert(id, game_controller);
+            .map_err(|e| format!("Can't enumerate joysticks: {}", e))
+            .unwrap();
+        for (id, game_controller) in (0..available).filter_map(|id| {
+            self.game_controller_subsystem
+                .open(id)
+                .ok()
+                .map(|c| (id, c))
+        }) {
+            self.game_controllers
+                .lock()
+                .unwrap()
+                .insert(id, game_controller);
         }
-        
+
         let sdl = self.sdl.clone();
         let sender = self.event_sender.clone();
         let running = self.running.clone();
@@ -120,17 +148,37 @@ impl InputSystem {
             if let Some(sender) = sender.as_ref().borrow().as_ref() {
                 for event in event_pump.poll_iter() {
                     match event {
-                        Event::ControllerAxisMotion { axis, which, value, .. } => sender.send(InputEvent(InputSource::GameController(which), InputSourceEvent::AxisChanged(axis, value))).unwrap(),
-                        Event::ControllerButtonDown { button, which, .. } => sender.send(InputEvent(InputSource::GameController(which), InputSourceEvent::ButtonChanged(button, true))).unwrap(),
-                        Event::ControllerButtonUp { button, which, .. } => sender.send(InputEvent(InputSource::GameController(which), InputSourceEvent::ButtonChanged(button, false))).unwrap(),
+                        Event::ControllerAxisMotion {
+                            axis, which, value, ..
+                        } => sender
+                            .send(InputEvent(
+                                InputSource::GameController(which),
+                                InputSourceEvent::AxisChanged(axis, value),
+                            ))
+                            .unwrap(),
+                        Event::ControllerButtonDown { button, which, .. } => sender
+                            .send(InputEvent(
+                                InputSource::GameController(which),
+                                InputSourceEvent::ButtonChanged(button, true),
+                            ))
+                            .unwrap(),
+                        Event::ControllerButtonUp { button, which, .. } => sender
+                            .send(InputEvent(
+                                InputSource::GameController(which),
+                                InputSourceEvent::ButtonChanged(button, false),
+                            ))
+                            .unwrap(),
                         Event::ControllerDeviceAdded { which, .. } => {
                             if let Ok(game_controller) = game_controller_subsystem.open(which) {
-                                game_controllers.lock().unwrap().insert(which, game_controller);
+                                game_controllers
+                                    .lock()
+                                    .unwrap()
+                                    .insert(which, game_controller);
                             }
-                        },
+                        }
                         Event::ControllerDeviceRemoved { which, .. } => {
                             game_controllers.lock().unwrap().remove(&which);
-                        },
+                        }
                         Event::Quit { .. } => break,
                         _ => (),
                     }

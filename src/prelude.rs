@@ -16,8 +16,8 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-use glib::{ObjectExt as GlibObjectExt, ObjectType};
 use adw::Carousel;
+use glib::{ObjectExt as GlibObjectExt, ObjectType};
 use gtk::{prelude::*, Window};
 
 pub trait ObjectExt {
@@ -27,14 +27,10 @@ pub trait ObjectExt {
 
 impl<T: ObjectType> ObjectExt for T {
     fn put_data<OD: 'static>(&self, name: &str, data: OD) {
-        unsafe {
-            self.set_data(name, data)
-        }
+        unsafe { self.set_data(name, data) }
     }
     fn get_data<QD: 'static>(&self, key: &str) -> Option<&'static QD> {
-        unsafe {
-            self.data(key).map(|x| x.as_ref())
-        }
+        unsafe { self.data(key).map(|x| x.as_ref()) }
     }
 }
 

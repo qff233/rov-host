@@ -20,7 +20,8 @@ use std::{str::FromStr, sync::{Arc, Mutex}, ffi::c_void};
 
 use glib::{Sender, clone, EnumClass};
 use gtk::prelude::*;
-use gst::{Element, Pad, PadProbeType, Pipeline, element_error, prelude::*, PadProbeReturn, PadProbeData, EventView};
+use gst::{Element, Pad, PadProbeType, Pipeline, element_error, 
+            prelude::*, PadProbeReturn, PadProbeData, EventView};
 use gdk_pixbuf::{Colorspace, Pixbuf};
 
 use opencv as cv;
@@ -614,3 +615,4 @@ impl MatExt for Mat {
         pixbuf
     }
 }
+

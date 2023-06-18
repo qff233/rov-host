@@ -16,29 +16,42 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-pub mod preferences;
-pub mod slave;
-pub mod prelude;
-pub mod input;
-pub mod ui;
 pub mod async_glib;
 pub mod function;
+pub mod input;
+pub mod preferences;
+pub mod prelude;
+pub mod slave;
+pub mod ui;
 
-use std::{fs, cell::RefCell, net::Ipv4Addr, rc::Rc, ops::Deref, str::FromStr};
+use std::{cell::RefCell, fs, net::Ipv4Addr, ops::Deref, rc::Rc, str::FromStr};
 
-use glib::{MainContext, clone, Sender, WeakRef, DateTime, PRIORITY_DEFAULT};
-use gtk::{AboutDialog, Align, Box as GtkBox, Grid, Image, Inhibit, Label, MenuButton, Orientation, Stack, prelude::*, Button, ToggleButton, Separator, License};
-use adw::{ApplicationWindow, CenteringPolicy, ColorScheme, StyleManager, HeaderBar, StatusPage, prelude::*};
-use relm4::{AppUpdate, ComponentUpdate, Model, RelmApp, RelmComponent, Widgets, actions::{RelmAction, RelmActionGroup}, factory::FactoryVec, send, new_stateless_action, new_action_group};
+use adw::{
+    prelude::*, ApplicationWindow, CenteringPolicy, ColorScheme, HeaderBar, StatusPage,
+    StyleManager,
+};
+use glib::{clone, DateTime, MainContext, Sender, WeakRef, PRIORITY_DEFAULT};
+use gtk::{
+    AboutDialog, Align, Box as GtkBox, Button, Grid, Image, Inhibit, Label, License, MenuButton,
+    Orientation, Separator, Stack, ToggleButton,
+};
+use relm4::{
+    actions::{RelmAction, RelmActionGroup},
+    factory::FactoryVec,
+    new_action_group, new_stateless_action, send, AppUpdate, ComponentUpdate, Model, RelmApp,
+    RelmComponent, Widgets,
+};
 use relm4_macros::widget;
 
-use serde::{Serialize, Deserialize};
-use strum_macros::EnumIter;
 use derivative::*;
+use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
-use crate::input::{InputSystem, InputEvent};
+use crate::input::{InputEvent, InputSystem};
 use crate::preferences::{PreferencesModel, PreferencesMsg};
-use crate::slave::{SlaveModel, MyComponent, SlaveMsg, slave_config::SlaveConfigModel, slave_video::SlaveVideoMsg};
+use crate::slave::{
+    slave_config::SlaveConfigModel, slave_video::SlaveVideoMsg, MyComponent, SlaveModel, SlaveMsg,
+};
 use crate::ui::generic::error_message;
 
 struct AboutModel {}
@@ -61,9 +74,9 @@ impl Widgets<AboutModel, AppModel> for AboutWidgets {
                 Inhibit(true)
             },
             set_website: Some("https://github.com/BohongHuang/rov-host"),
-            set_authors: &["黄博宏 https://bohonghuang.github.io"],
+            set_authors: &["黄博宏 https://bohonghuang.github.io", "彭剑锋 https://qff233.com"],
             set_program_name: Some("水下机器人上位机"),
-            set_copyright: Some("© 2021-2022 集美大学水下智能创新实验室"),
+            set_copyright: Some("© 2021-2023 集美大学水下智能创新实验室"),
             set_comments: Some("跨平台的水下机器人上位机程序"),
             set_logo_icon_name: Some("input-gaming"),
             set_version: Some(env!("CARGO_PKG_VERSION")),
@@ -73,13 +86,24 @@ impl Widgets<AboutModel, AppModel> for AboutWidgets {
 }
 
 impl ComponentUpdate<AppModel> for AboutModel {
-    fn init_model(_parent_model: &AppModel) -> Self { AboutModel {} }
-    fn update(&mut self, _msg: AboutMsg, _components: &(), _sender: Sender<AboutMsg>, _parent_sender: Sender<AppMsg>) {}
+    fn init_model(_parent_model: &AppModel) -> Self {
+        AboutModel {}
+    }
+    fn update(
+        &mut self,
+        _msg: AboutMsg,
+        _components: &(),
+        _sender: Sender<AboutMsg>,
+        _parent_sender: Sender<AppMsg>,
+    ) {
+    }
 }
 
 #[derive(EnumIter, PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum AppColorScheme {
-    FollowSystem, Light, Dark
+    FollowSystem,
+    Light,
+    Dark,
 }
 
 impl ToString for AppColorScheme {
@@ -88,7 +112,8 @@ impl ToString for AppColorScheme {
             AppColorScheme::FollowSystem => "跟随系统",
             AppColorScheme::Light => "浅色",
             AppColorScheme::Dark => "暗色",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -102,11 +127,11 @@ impl Default for AppColorScheme {
 #[derive(Derivative)]
 #[derivative(Default)]
 pub struct AppModel {
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     sync_recording: Option<bool>,
-    fullscreened: bool, 
+    fullscreened: bool,
     #[no_eq]
-    #[derivative(Default(value="FactoryVec::new()"))]
+    #[derivative(Default(value = "FactoryVec::new()"))]
     slaves: FactoryVec<MyComponent<SlaveModel>>,
     #[no_eq]
     preferences: Rc<RefCell<PreferencesModel>>,
@@ -224,32 +249,40 @@ impl Widgets<AppModel, ()> for AppWidgets {
             }
         }
     }
-    
+
     fn post_init() {
-        send!(components.preferences.sender(), PreferencesMsg::SetApplicationColorScheme(None));
+        send!(
+            components.preferences.sender(),
+            PreferencesMsg::SetApplicationColorScheme(None)
+        );
         let app_group = RelmActionGroup::<AppActionGroup>::new();
-        
-        let action_preferences: RelmAction<PreferencesAction> = RelmAction::new_stateless(clone!(@strong sender => move |_| {
-            send!(sender, AppMsg::OpenPreferencesWindow);
-        }));
-        let action_about: RelmAction<AboutDialogAction> = RelmAction::new_stateless(clone!(@strong sender => move |_| {
-            send!(sender, AppMsg::OpenAboutDialog);
-        }));
-        
+
+        let action_preferences: RelmAction<PreferencesAction> =
+            RelmAction::new_stateless(clone!(@strong sender => move |_| {
+                send!(sender, AppMsg::OpenPreferencesWindow);
+            }));
+        let action_about: RelmAction<AboutDialogAction> =
+            RelmAction::new_stateless(clone!(@strong sender => move |_| {
+                send!(sender, AppMsg::OpenAboutDialog);
+            }));
+
         app_group.add_action(action_preferences);
         app_group.add_action(action_about);
         app_window.insert_action_group("main", Some(&app_group.into_action_group()));
         for _ in 0..*model.get_preferences().borrow().get_initial_slave_num() {
             send!(sender, AppMsg::NewSlave(app_window.clone().downgrade()));
         }
-        
+
         let (input_event_sender, input_event_receiver) = MainContext::channel(PRIORITY_DEFAULT);
         *model.input_system.event_sender.borrow_mut() = Some(input_event_sender);
-        
-        input_event_receiver.attach(None, clone!(@strong sender => move |event| {
-            send!(sender, AppMsg::DispatchInputEvent(event));
-            Continue(true)
-        }));
+
+        input_event_receiver.attach(
+            None,
+            clone!(@strong sender => move |event| {
+                send!(sender, AppMsg::DispatchInputEvent(event));
+                Continue(true)
+            }),
+        );
     }
 }
 
@@ -264,66 +297,94 @@ pub enum AppMsg {
     SetFullscreened(bool),
     OpenAboutDialog,
     OpenPreferencesWindow,
-    StopInputSystem, 
+    StopInputSystem,
 }
 
 #[derive(relm4_macros::Components)]
 pub struct AppComponents {
-    about: RelmComponent::<AboutModel, AppModel>,
-    preferences: RelmComponent::<PreferencesModel, AppModel>,
+    about: RelmComponent<AboutModel, AppModel>,
+    preferences: RelmComponent<PreferencesModel, AppModel>,
 }
 
-
 impl AppUpdate for AppModel {
-    fn update(
-        &mut self,
-        msg: AppMsg,
-        components: &AppComponents,
-        sender: Sender<AppMsg>,
-    ) -> bool {
+    fn update(&mut self, msg: AppMsg, components: &AppComponents, sender: Sender<AppMsg>) -> bool {
         self.reset();
         match msg {
             AppMsg::OpenAboutDialog => {
                 components.about.root_widget().present();
-            },
+            }
             AppMsg::OpenPreferencesWindow => {
                 components.preferences.root_widget().present();
-            },
+            }
             AppMsg::NewSlave(app_window) => {
                 let index = self.get_slaves().len() as u8;
-                let mut slave_url: url::Url = self.get_preferences().borrow().get_default_slave_url().clone();
-                if let Some(ip) = slave_url.host_str().and_then(|str| Ipv4Addr::from_str(str).ok()) {
+                let mut slave_url: url::Url = self
+                    .get_preferences()
+                    .borrow()
+                    .get_default_slave_url()
+                    .clone();
+                if let Some(ip) = slave_url
+                    .host_str()
+                    .and_then(|str| Ipv4Addr::from_str(str).ok())
+                {
                     let mut ip_octets = ip.octets();
                     ip_octets[3] = ip_octets[3].wrapping_add(index);
-                    slave_url.set_host(Some(Ipv4Addr::from(ip_octets).to_string().as_str())).unwrap_or_default();
+                    slave_url
+                        .set_host(Some(Ipv4Addr::from(ip_octets).to_string().as_str()))
+                        .unwrap_or_default();
                 }
-                let mut video_url = self.get_preferences().borrow().get_default_video_url().clone();
+                let mut video_url = self
+                    .get_preferences()
+                    .borrow()
+                    .get_default_video_url()
+                    .clone();
                 if let Some(port) = video_url.port() {
-                    video_url.set_port(Some(port.wrapping_add(index as u16))).unwrap();
+                    video_url
+                        .set_port(Some(port.wrapping_add(index as u16)))
+                        .unwrap();
                 }
-                let (input_event_sender, input_event_receiver) = MainContext::channel(PRIORITY_DEFAULT);
-                let (slave_event_sender, slave_event_receiver) = MainContext::channel(PRIORITY_DEFAULT);
-                let mut slave_config = SlaveConfigModel::from_preferences(&self.preferences.borrow());
+                let (input_event_sender, input_event_receiver) =
+                    MainContext::channel(PRIORITY_DEFAULT);
+                let (slave_event_sender, slave_event_receiver) =
+                    MainContext::channel(PRIORITY_DEFAULT);
+                let mut slave_config =
+                    SlaveConfigModel::from_preferences(&self.preferences.borrow());
                 slave_config.set_slave_url(slave_url);
                 slave_config.set_video_url(video_url);
-                slave_config.set_keep_video_display_ratio(*self.get_preferences().borrow().get_default_keep_video_display_ratio());
-                let slave = SlaveModel::new(slave_config, self.get_preferences().clone(), &slave_event_sender, input_event_sender);
+                slave_config.set_keep_video_display_ratio(
+                    *self
+                        .get_preferences()
+                        .borrow()
+                        .get_default_keep_video_display_ratio(),
+                );
+                let slave = SlaveModel::new(
+                    slave_config,
+                    self.get_preferences().clone(),
+                    &slave_event_sender,
+                    input_event_sender,
+                );
                 let component = MyComponent::new(slave, (sender.clone(), app_window));
                 let component_sender = component.sender().clone();
-                input_event_receiver.attach(None,  clone!(@strong component_sender => move |event| {
-                    component_sender.send(SlaveMsg::InputReceived(event)).unwrap();
-                    Continue(true)
-                }));
-                slave_event_receiver.attach(None, clone!(@strong component_sender => move |event| {
-                    component_sender.send(event).unwrap();
-                    Continue(true)
-                }));
+                input_event_receiver.attach(
+                    None,
+                    clone!(@strong component_sender => move |event| {
+                        component_sender.send(SlaveMsg::InputReceived(event)).unwrap();
+                        Continue(true)
+                    }),
+                );
+                slave_event_receiver.attach(
+                    None,
+                    clone!(@strong component_sender => move |event| {
+                        component_sender.send(event).unwrap();
+                        Continue(true)
+                    }),
+                );
                 self.get_mut_slaves().push(component);
                 self.set_sync_recording(Some(false));
-            },
+            }
             AppMsg::PreferencesUpdated(preferences) => {
                 *self.get_mut_preferences().borrow_mut() = preferences;
-            },
+            }
             AppMsg::DispatchInputEvent(InputEvent(source, event)) => {
                 for slave in self.slaves.iter() {
                     let slave_model = slave.model().unwrap();
@@ -331,68 +392,97 @@ impl AppUpdate for AppModel {
                         slave_model.input_event_sender.send(event.clone()).unwrap();
                     }
                 }
-            },
-            AppMsg::ToggleSyncRecording(window) => match *self.get_sync_recording() {
-                Some(recording) => {
-                    if !recording {
-                        if self.slaves.iter().all(|x| *x.model().unwrap().get_polling() == Some(true) && *x.model().unwrap().get_recording() == Some(false)) {
-                            let timestamp = DateTime::now_local().unwrap().format_iso8601().unwrap().replace(":", "-");
-                            for (index, component) in self.slaves.iter().enumerate() {
-                                let model = component.model().unwrap();
-                                let preferences = self.preferences.borrow();
-                                let mut pathbuf = preferences.get_video_save_path().clone();
-                                if *preferences.get_video_sync_record_use_separate_directory() {
-                                    pathbuf.push(&timestamp);
-                                    fs::create_dir_all(&pathbuf).unwrap();
-                                    pathbuf.push(format!("{}.mkv", index + 1));
-                                } else {
-                                    pathbuf.push(format!("{}_{}.mkv", &timestamp, index + 1));
+            }
+            AppMsg::ToggleSyncRecording(window) => {
+                match *self.get_sync_recording() {
+                    Some(recording) => {
+                        if !recording {
+                            if self.slaves.iter().all(|x| {
+                                *x.model().unwrap().get_polling() == Some(true)
+                                    && *x.model().unwrap().get_recording() == Some(false)
+                            }) {
+                                let timestamp = DateTime::now_local()
+                                    .unwrap()
+                                    .format_iso8601()
+                                    .unwrap()
+                                    .replace(":", "-");
+                                for (index, component) in self.slaves.iter().enumerate() {
+                                    let model = component.model().unwrap();
+                                    let preferences = self.preferences.borrow();
+                                    let mut pathbuf = preferences.get_video_save_path().clone();
+                                    if *preferences.get_video_sync_record_use_separate_directory() {
+                                        pathbuf.push(&timestamp);
+                                        fs::create_dir_all(&pathbuf).unwrap();
+                                        pathbuf.push(format!("{}.mkv", index + 1));
+                                    } else {
+                                        pathbuf.push(format!("{}_{}.mkv", &timestamp, index + 1));
+                                    }
+                                    model
+                                        .get_video()
+                                        .send(SlaveVideoMsg::StartRecord(pathbuf))
+                                        .unwrap();
                                 }
-                                model.get_video().send(SlaveVideoMsg::StartRecord(pathbuf)).unwrap();
+                                self.set_sync_recording(Some(true));
+                            } else {
+                                error_message("错误", "无法进行同步录制，请确保所有机位均已启动拉流并未处于录制状态。", window.upgrade().as_ref()).present();
                             }
-                            self.set_sync_recording(Some(true));
                         } else {
-                            error_message("错误", "无法进行同步录制，请确保所有机位均已启动拉流并未处于录制状态。", window.upgrade().as_ref()).present();
+                            for (_index, component) in self.get_slaves().iter().enumerate() {
+                                let model = component.model().unwrap();
+                                model
+                                    .get_video()
+                                    .send(SlaveVideoMsg::StopRecord(None))
+                                    .unwrap();
+                            }
+                            self.set_sync_recording(Some(false));
                         }
-                    } else {
-                        for (_index, component) in self.get_slaves().iter().enumerate() {
-                            let model = component.model().unwrap();
-                            model.get_video().send(SlaveVideoMsg::StopRecord(None)).unwrap();
-                        }
-                        self.set_sync_recording(Some(false));
                     }
-                },
-                None => (),
-            },
+                    None => (),
+                }
+            }
             AppMsg::StopInputSystem => {
                 self.input_system.stop();
-            },
+            }
             AppMsg::DestroySlave(slave_ptr) => {
                 if slave_ptr == std::ptr::null() {
                     self.get_mut_slaves().pop();
                 } else {
-                    let slave_index = self.get_slaves().iter().enumerate().find_map(move |(index, component)| if Deref::deref(&component.model().unwrap()) as *const SlaveModel == slave_ptr { Some(index)} else { None }).unwrap();
+                    let slave_index = self
+                        .get_slaves()
+                        .iter()
+                        .enumerate()
+                        .find_map(move |(index, component)| {
+                            if Deref::deref(&component.model().unwrap()) as *const SlaveModel
+                                == slave_ptr
+                            {
+                                Some(index)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
                     if slave_index == self.get_slaves().len() - 1 {
                         self.get_mut_slaves().pop();
                     }
                 }
-            },
+            }
             AppMsg::SetFullscreened(fullscreened) => self.set_fullscreened(fullscreened),
             AppMsg::RemoveLastSlave => {
                 if let Some(slave) = self.get_slaves().iter().last() {
                     send!(slave.sender(), SlaveMsg::DestroySlave);
                 }
-            },
-            AppMsg::SetColorScheme(scheme) => StyleManager::default().set_color_scheme(match scheme {
-                AppColorScheme::FollowSystem => ColorScheme::Default,
-                AppColorScheme::Light => ColorScheme::ForceLight,
-                AppColorScheme::Dark => ColorScheme::ForceDark,
-            }),
+            }
+            AppMsg::SetColorScheme(scheme) => {
+                StyleManager::default().set_color_scheme(match scheme {
+                    AppColorScheme::FollowSystem => ColorScheme::Default,
+                    AppColorScheme::Light => ColorScheme::ForceLight,
+                    AppColorScheme::Dark => ColorScheme::ForceDark,
+                })
+            }
         }
         true
     }
 }
-
 
 fn main() {
     gst::init().expect("无法初始化 GStreamer");

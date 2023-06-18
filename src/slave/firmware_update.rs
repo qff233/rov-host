@@ -16,17 +16,17 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+use async_std::{io::ReadExt, task};
 use std::error::Error;
 use std::fmt::Display;
-use std::{path::PathBuf, fmt::Debug};
-use async_std::{io::ReadExt, task};
+use std::{fmt::Debug, path::PathBuf};
 
+use adw::{prelude::*, ActionRow, Carousel, HeaderBar, PreferencesGroup, StatusPage, Window};
 use glib::Sender;
 use glib_macros::clone;
-use gtk::{Align, Box as GtkBox, Orientation, prelude::*, FileFilter, ProgressBar, FileChooserAction, Button};
-use adw::{HeaderBar, PreferencesGroup, StatusPage, Window, prelude::*, ActionRow, Carousel};
+use gtk::{Align, Box as GtkBox, Button, FileChooserAction, FileFilter, Orientation, ProgressBar};
 use once_cell::unsync::OnceCell;
-use relm4::{send, MicroWidgets, MicroModel};
+use relm4::{send, MicroModel, MicroWidgets};
 use relm4_macros::micro_widget;
 
 use derivative::*;
@@ -34,7 +34,7 @@ use derivative::*;
 use jsonrpsee_core::client::ClientT;
 
 use crate::prelude::*;
-use crate::slave::{SlaveCommunicationMsg, RpcClient, AsRpcParams, protocol::*};
+use crate::slave::{protocol::*, AsRpcParams, RpcClient, SlaveCommunicationMsg};
 use crate::ui::generic::select_path;
 
 use super::SlaveMsg;
@@ -57,13 +57,15 @@ pub struct SlaveFirmwareUpdaterModel {
     #[no_eq]
     _rpc_client: OnceCell<RpcClient>,
     #[no_eq]
-    #[derivative(Default(value="Ok(())"))]
+    #[derivative(Default(value = "Ok(())"))]
     firmware_update_result: Result<(), SlaveFirmwareUpdateError>,
 }
 
 impl SlaveFirmwareUpdaterModel {
     fn is_uploading(&self) -> bool {
-        self.firmware_uploading_progress > 0.0 && self.firmware_uploading_progress < 1.0 && self.firmware_update_result.is_ok()
+        self.firmware_uploading_progress > 0.0
+            && self.firmware_uploading_progress < 1.0
+            && self.firmware_update_result.is_ok()
     }
 }
 
@@ -79,7 +81,11 @@ impl Display for SlaveFirmwareUpdateError {
         match self {
             SlaveFirmwareUpdateError::IOError(error) => Display::fmt(error, f),
             SlaveFirmwareUpdateError::RpcError(error) => Display::fmt(error, f),
-            SlaveFirmwareUpdateError::VerificationError(expect, given) => write!(f, "Verification error: The returned length {} doesn't match the expected {}", given, expect),
+            SlaveFirmwareUpdateError::VerificationError(expect, given) => write!(
+                f,
+                "Verification error: The returned length {} doesn't match the expected {}",
+                given, expect
+            ),
         }
     }
 }
@@ -93,7 +99,7 @@ impl SlaveFirmwareUpdaterModel {
             ..Default::default()
         }
     }
-    
+
     pub fn get_rpc_client(&self) -> &RpcClient {
         self._rpc_client.get().unwrap()
     }
@@ -103,18 +109,27 @@ impl MicroModel for SlaveFirmwareUpdaterModel {
     type Msg = SlaveFirmwareUpdaterMsg;
     type Widgets = SlaveFirmwareUpdaterWidgets;
     type Data = Sender<SlaveMsg>;
-    
-    fn update(&mut self, msg: SlaveFirmwareUpdaterMsg, parent_sender: &Sender<SlaveMsg>, sender: Sender<SlaveFirmwareUpdaterMsg>) {
+
+    fn update(
+        &mut self,
+        msg: SlaveFirmwareUpdaterMsg,
+        parent_sender: &Sender<SlaveMsg>,
+        sender: Sender<SlaveFirmwareUpdaterMsg>,
+    ) {
         self.reset();
         match msg {
-            SlaveFirmwareUpdaterMsg::NextStep => self.set_current_page(self.get_current_page().wrapping_add(1)),
-            SlaveFirmwareUpdaterMsg::FirmwareFileSelected(path) => self.set_firmware_file_path(Some(path)),
+            SlaveFirmwareUpdaterMsg::NextStep => {
+                self.set_current_page(self.get_current_page().wrapping_add(1))
+            }
+            SlaveFirmwareUpdaterMsg::FirmwareFileSelected(path) => {
+                self.set_firmware_file_path(Some(path))
+            }
             SlaveFirmwareUpdaterMsg::FirmwareUploadProgressUpdated(progress) => {
                 self.set_firmware_uploading_progress(progress);
                 if progress >= 1.0 || progress < 0.0 {
                     send!(sender, SlaveFirmwareUpdaterMsg::NextStep);
                 }
-            },
+            }
             SlaveFirmwareUpdaterMsg::StartUpload => {
                 if let Some(path) = self.get_firmware_file_path() {
                     const CHUNK_SIZE: usize = 1024;
@@ -155,13 +170,16 @@ impl MicroModel for SlaveFirmwareUpdaterModel {
                         }
                         Ok(())
                     });
-                    send!(parent_sender, SlaveMsg::CommunicationMessage(SlaveCommunicationMsg::Block(handle)));
+                    send!(
+                        parent_sender,
+                        SlaveMsg::CommunicationMessage(SlaveCommunicationMsg::Block(handle))
+                    );
                 }
-            },
+            }
             SlaveFirmwareUpdaterMsg::FirmwareUploadFailed(err) => {
                 self.set_firmware_update_result(Err(err));
                 send!(sender, SlaveFirmwareUpdaterMsg::NextStep);
-            },
+            }
         }
     }
 }

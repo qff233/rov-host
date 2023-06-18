@@ -16,8 +16,8 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-use gtk::prelude::*;
 use gio::subclass::prelude::*;
+use gtk::prelude::*;
 
 use self::imp::FnBoxedPoint;
 
@@ -45,7 +45,7 @@ mod imp {
     #[boxed_type(name = "FnBoxedPoint")]
     #[allow(clippy::type_complexity)]
     pub struct FnBoxedPoint(pub Rc<RefCell<Option<Box<dyn Fn(&Point) -> String>>>>);
-    
+
     impl FnBoxedPoint {
         pub fn new(func: Option<Box<dyn Fn(&Point) -> String>>) -> Self {
             Self(Rc::new(RefCell::new(func)))
@@ -104,11 +104,10 @@ mod imp {
 
             inner.height = widget.height() as f32 - HALF_Y_PADDING * 2.0;
             inner.width = widget.width() as f32 - HALF_X_PADDING * 2.0;
-            
+
             if inner.points.is_empty() {
                 inner.scale_x = inner.width;
                 inner.scale_y = inner.height / 10000.0;
-
             } else {
                 // If we have more than one points, we don't want an empty point at the end of the graph
                 inner.scale_x = if inner.points.len() > 1 {
@@ -147,7 +146,9 @@ mod imp {
                     f64::from(mul * i as f32 + HALF_Y_PADDING),
                 );
                 let layout = widget.create_pango_layout(Some(
-                    &(inner.lower_value + (inner.upper_value - inner.lower_value) / 4.0 * (4 - i) as f32).to_string(),
+                    &(inner.lower_value
+                        + (inner.upper_value - inner.lower_value) / 4.0 * (4 - i) as f32)
+                        .to_string(),
                 ));
                 let (_, extents) = layout.extents();
 
@@ -194,7 +195,10 @@ mod imp {
             cr.set_line_width(4.0);
             for (i, point) in inner.points.iter().enumerate() {
                 let x = f64::from(i as f32 * inner.scale_x + HALF_X_PADDING);
-                let y = f64::from(inner.height - (point.value - inner.lower_value) * inner.scale_y + HALF_Y_PADDING);
+                let y = f64::from(
+                    inner.height - (point.value - inner.lower_value) * inner.scale_y
+                        + HALF_Y_PADDING,
+                );
 
                 cr.move_to(x, y);
                 cr.arc(x, y, 1.0, 0.0, 2.0 * PI);
@@ -212,7 +216,8 @@ mod imp {
             cr.move_to(
                 f64::from(HALF_X_PADDING),
                 f64::from(
-                    inner.height - (inner.points.get(0).unwrap().value - inner.lower_value) * inner.scale_y
+                    inner.height
+                        - (inner.points.get(0).unwrap().value - inner.lower_value) * inner.scale_y
                         + HALF_Y_PADDING,
                 ),
             );
@@ -227,7 +232,10 @@ mod imp {
 
                 cr.curve_to(
                     f64::from((i as f32 + smoothness_factor) * inner.scale_x + HALF_X_PADDING),
-                    f64::from(inner.height - (point.value - inner.lower_value) * inner.scale_y + HALF_Y_PADDING),
+                    f64::from(
+                        inner.height - (point.value - inner.lower_value) * inner.scale_y
+                            + HALF_Y_PADDING,
+                    ),
                     f64::from(
                         ((i + 1) as f32 - smoothness_factor) * inner.scale_x + HALF_X_PADDING,
                     ),
@@ -240,7 +248,8 @@ mod imp {
             cr.line_to(
                 f64::from(inner.width + HALF_X_PADDING),
                 f64::from(
-                    inner.height - (inner.points.last().unwrap().value - inner.lower_value) * inner.scale_y
+                    inner.height
+                        - (inner.points.last().unwrap().value - inner.lower_value) * inner.scale_y
                         + HALF_Y_PADDING,
                 ),
             );
@@ -314,7 +323,7 @@ mod imp {
                         f32::MAX,
                         0.0,
                         glib::ParamFlags::READWRITE,
-                    )
+                    ),
                 ]
             });
 
@@ -412,7 +421,7 @@ impl GraphView {
         inner.points = points;
         self.queue_draw();
     }
-    
+
     pub fn set_upper_value(&self, upper_value: f32) {
         self.set_property("upper-value", upper_value)
     }
@@ -424,7 +433,7 @@ impl GraphView {
     pub fn set_lower_value(&self, lower_value: f32) {
         self.set_property("lower-value", lower_value);
     }
-    
+
     pub fn lower_value(&self) -> f32 {
         self.property("lower-value")
     }
@@ -457,4 +466,3 @@ impl GraphView {
 //         Self(Rc::new(RefCell::new(func)))
 //     }
 // }
-

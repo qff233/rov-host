@@ -16,49 +16,60 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{str::FromStr, fmt::Debug};
+use std::{fmt::Debug, str::FromStr};
 
+use adw::{prelude::*, ActionRow, ComboRow, ExpanderRow, PreferencesGroup};
 use glib::Sender;
-use gtk::{Align, Label, Box as GtkBox, Entry, Inhibit, Orientation, ScrolledWindow, Separator, StringList, Switch, Viewport, SpinButton, prelude::*};
-use adw::{ActionRow, PreferencesGroup, prelude::*, ComboRow, ExpanderRow};
-use relm4::{WidgetPlus, send, MicroModel, MicroWidgets};
+use gtk::{
+    Align, Box as GtkBox, Entry, Inhibit, Label, Orientation, ScrolledWindow, Separator,
+    SpinButton, StringList, Switch, Viewport,
+};
+use relm4::{send, MicroModel, MicroWidgets, WidgetPlus};
 use relm4_macros::micro_widget;
 
-use strum::IntoEnumIterator;
 use derivative::*;
+use strum::IntoEnumIterator;
 use url::Url;
 
-use crate::{preferences::PreferencesModel, slave::video::{VideoDecoder, ColorspaceConversion, VideoCodecProvider, VideoCodec}};
-use super::{SlaveMsg, video::{VideoAlgorithm, VideoEncoder}};
+use super::{
+    video::{VideoAlgorithm, VideoEncoder},
+    SlaveMsg,
+};
+use crate::{
+    preferences::PreferencesModel,
+    slave::video::{ColorspaceConversion, VideoCodec, VideoCodecProvider, VideoDecoder},
+};
 
 #[tracker::track]
 #[derive(Debug, Derivative, PartialEq, Clone)]
 #[derivative(Default)]
 pub struct SlaveConfigModel {
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     polling: Option<bool>,
-    #[derivative(Default(value="Some(false)"))]
+    #[derivative(Default(value = "Some(false)"))]
     connected: Option<bool>,
-    #[derivative(Default(value="PreferencesModel::default().default_slave_url"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_slave_url"))]
     pub slave_url: Url,
-    #[derivative(Default(value="PreferencesModel::default().default_video_url"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_video_url"))]
     pub video_url: Url,
     pub video_algorithms: Vec<VideoAlgorithm>,
-    #[derivative(Default(value="PreferencesModel::default().default_keep_video_display_ratio"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_keep_video_display_ratio"))]
     pub keep_video_display_ratio: bool,
-    #[derivative(Default(value="PreferencesModel::default().default_video_decoder"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_video_decoder"))]
     pub video_decoder: VideoDecoder,
-    #[derivative(Default(value="PreferencesModel::default().default_colorspace_conversion"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_colorspace_conversion"))]
     pub colorspace_conversion: ColorspaceConversion,
-    #[derivative(Default(value="false"))]
+    #[derivative(Default(value = "false"))]
     pub swap_xy: bool,
-    #[derivative(Default(value="PreferencesModel::default().default_use_decodebin"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_use_decodebin"))]
     pub use_decodebin: bool,
     pub video_encoder: VideoEncoder,
     pub reencode_recording_video: bool,
-    #[derivative(Default(value="PreferencesModel::default().default_appsink_queue_leaky_enabled"))]
+    #[derivative(Default(
+        value = "PreferencesModel::default().default_appsink_queue_leaky_enabled"
+    ))]
     pub appsink_queue_leaky_enabled: bool,
-    #[derivative(Default(value="PreferencesModel::default().default_video_latency"))]
+    #[derivative(Default(value = "PreferencesModel::default().default_video_latency"))]
     pub video_latency: u32,
 }
 
@@ -73,7 +84,9 @@ impl SlaveConfigModel {
             use_decodebin: preferences.get_default_use_decodebin().clone(),
             video_encoder: preferences.get_default_video_encoder().clone(),
             reencode_recording_video: preferences.get_default_reencode_recording_video().clone(),
-            appsink_queue_leaky_enabled: preferences.get_default_appsink_queue_leaky_enabled().clone(),
+            appsink_queue_leaky_enabled: preferences
+                .get_default_appsink_queue_leaky_enabled()
+                .clone(),
             video_latency: preferences.get_default_video_latency().clone(),
             ..Default::default()
         }
@@ -84,10 +97,17 @@ impl MicroModel for SlaveConfigModel {
     type Msg = SlaveConfigMsg;
     type Widgets = SlaveConfigWidgets;
     type Data = Sender<SlaveMsg>;
-    fn update(&mut self, msg: SlaveConfigMsg, parent_sender: &Sender<SlaveMsg>, _sender: Sender<SlaveConfigMsg>) {
+    fn update(
+        &mut self,
+        msg: SlaveConfigMsg,
+        parent_sender: &Sender<SlaveMsg>,
+        _sender: Sender<SlaveConfigMsg>,
+    ) {
         self.reset();
         match msg {
-            SlaveConfigMsg::SetKeepVideoDisplayRatio(value) => self.set_keep_video_display_ratio(value),
+            SlaveConfigMsg::SetKeepVideoDisplayRatio(value) => {
+                self.set_keep_video_display_ratio(value)
+            }
             SlaveConfigMsg::SetPolling(polling) => self.set_polling(polling),
             SlaveConfigMsg::SetConnected(connected) => self.set_connected(connected),
             SlaveConfigMsg::SetVideoAlgorithm(algorithm) => {
@@ -95,29 +115,37 @@ impl MicroModel for SlaveConfigModel {
                 if let Some(algorithm) = algorithm {
                     self.get_mut_video_algorithms().push(algorithm);
                 }
-            },
+            }
             SlaveConfigMsg::SetVideoDecoder(decoder) => self.set_video_decoder(decoder),
-            SlaveConfigMsg::SetColorspaceConversion(conversion) => self.set_colorspace_conversion(conversion),
+            SlaveConfigMsg::SetColorspaceConversion(conversion) => {
+                self.set_colorspace_conversion(conversion)
+            }
             SlaveConfigMsg::SetVideoUrl(url) => self.video_url = url,
             SlaveConfigMsg::SetSlaveUrl(url) => self.slave_url = url,
             SlaveConfigMsg::SetVideoDecoderCodec(codec) => self.get_mut_video_decoder().0 = codec,
-            SlaveConfigMsg::SetVideoDecoderCodecProvider(provider) => self.get_mut_video_decoder().1 = provider,
+            SlaveConfigMsg::SetVideoDecoderCodecProvider(provider) => {
+                self.get_mut_video_decoder().1 = provider
+            }
             SlaveConfigMsg::SetSwapXY(swap) => self.set_swap_xy(swap),
             SlaveConfigMsg::SetUsePlaybin(use_decodebin) => {
                 if use_decodebin {
                     self.set_reencode_recording_video(true);
                 }
                 self.set_use_decodebin(use_decodebin);
-            },
+            }
             SlaveConfigMsg::SetVideoEncoderCodec(codec) => self.get_mut_video_encoder().0 = codec,
-            SlaveConfigMsg::SetVideoEncoderCodecProvider(provider) => self.get_mut_video_encoder().1 = provider,
+            SlaveConfigMsg::SetVideoEncoderCodecProvider(provider) => {
+                self.get_mut_video_encoder().1 = provider
+            }
             SlaveConfigMsg::SetReencodeRecordingVideo(reencode) => {
                 if !reencode {
                     self.set_use_decodebin(false);
                 }
                 self.set_reencode_recording_video(reencode)
-            },
-            SlaveConfigMsg::SetAppSinkQueueLeakyEnabled(leaky) => self.set_appsink_queue_leaky_enabled(leaky),
+            }
+            SlaveConfigMsg::SetAppSinkQueueLeakyEnabled(leaky) => {
+                self.set_appsink_queue_leaky_enabled(leaky)
+            }
             SlaveConfigMsg::SetVideoLatency(latency) => self.set_video_latency(latency),
         }
         send!(parent_sender, SlaveMsg::ConfigUpdated);
@@ -209,7 +237,7 @@ impl MicroWidgets<SlaveConfigModel> for SlaveConfigWidgets {
                         append = &PreferencesGroup {
                             set_title: "画面",
                             set_description: Some("上位机端对画面进行的处理选项"),
-                            
+
                             add = &ActionRow {
                                 set_title: "保持长宽比",
                                 set_subtitle: "在改变窗口大小的时是否保持画面比例，这可能导致画面无法全屏",
