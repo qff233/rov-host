@@ -280,41 +280,30 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                         set_hexpand: true,
                         set_halign: Align::Start,
                         set_spacing: 5,
-                        append = &GtkButton {
-                            set_icon_name: "network-transmit-symbolic",
-                            set_sensitive: track!(model.changed(SlaveModel::connected()), model.connected != None),
-                            set_css_classes?: watch!(model.connected.map(|x| if x { vec!["circular", "suggested-action"] } else { vec!["circular"] }).as_ref()),
-                            set_tooltip_text: track!(model.changed(SlaveModel::connected()), model.connected.map(|x| if x { "断开连接" } else { "连接" })),
-                            connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::ToggleConnect);
-                            },
-                        },
-                        append = &GtkButton {
-                            set_icon_name: "video-display-symbolic",
-                            set_sensitive: track!(model.changed(SlaveModel::recording()) || model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()), model.get_recording().is_some() && model.get_polling().is_some() && !model.sync_recording),
-                            set_css_classes?: watch!(model.polling.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
-                            set_tooltip_text: track!(model.changed(SlaveModel::polling()), model.polling.map(|x| if x { "停止拉流" } else { "启动拉流" })),
-                            connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::TogglePolling);
+                        append = &ToggleButton {
+                            set_icon_name: "emblem-system-symbolic",
+                            set_css_classes: &["circular"],
+                            set_tooltip_text: Some("机位设置"),
+                            set_active: track!(model.changed(SlaveModel::config_presented()), *model.get_config_presented()),
+                            connect_active_notify(sender) => move |button| {
+                                send!(sender, SlaveMsg::SetConfigPresented(button.is_active()));
                             },
                         },
                         append = &Separator {},
                         append = &GtkButton {
-                            set_icon_name: "camera-photo-symbolic",
-                            set_sensitive: watch!(model.video.model().get_pixbuf().is_some()),
+                            set_icon_name: "preferences-other-symbolic",
                             set_css_classes: &["circular"],
-                            set_tooltip_text: Some("画面截图"),
+                            set_tooltip_text: Some("参数调校"),
                             connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::TakeScreenshot);
+                                send!(sender, SlaveMsg::OpenParameterTuner);
                             },
                         },
                         append = &GtkButton {
-                            set_icon_name: "camera-video-symbolic",
-                            set_sensitive: track!(model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()) || model.changed(SlaveModel::recording()), !model.sync_recording && model.recording != None &&  model.polling == Some(true)),
-                            set_css_classes?: watch!(model.recording.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
-                            set_tooltip_text: track!(model.changed(SlaveModel::recording()), model.recording.map(|x| if x { "停止录制" } else { "开始录制" })),
+                            set_icon_name: "software-update-available-symbolic",
+                            set_css_classes: &["circular"],
+                            set_tooltip_text: Some("固件更新"),
                             connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::ToggleRecord);
+                                send!(sender, SlaveMsg::OpenFirmwareUpater);
                             },
                         },
                     },
@@ -362,38 +351,40 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                         set_spacing: 5,
                         set_margin_end: 5,
                         append = &GtkButton {
-                            set_icon_name: "software-update-available-symbolic",
+                            set_icon_name: "camera-photo-symbolic",
+                            set_sensitive: watch!(model.video.model().get_pixbuf().is_some()),
                             set_css_classes: &["circular"],
-                            set_tooltip_text: Some("固件更新"),
+                            set_tooltip_text: Some("画面截图"),
                             connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::OpenFirmwareUpater);
+                                send!(sender, SlaveMsg::TakeScreenshot);
                             },
                         },
                         append = &GtkButton {
-                            set_icon_name: "preferences-other-symbolic",
-                            set_css_classes: &["circular"],
-                            set_tooltip_text: Some("参数调校"),
+                            set_icon_name: "camera-video-symbolic",
+                            set_sensitive: track!(model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()) || model.changed(SlaveModel::recording()), !model.sync_recording && model.recording != None &&  model.polling == Some(true)),
+                            set_css_classes?: watch!(model.recording.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
+                            set_tooltip_text: track!(model.changed(SlaveModel::recording()), model.recording.map(|x| if x { "停止录制" } else { "开始录制" })),
                             connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::OpenParameterTuner);
+                                send!(sender, SlaveMsg::ToggleRecord);
                             },
                         },
                         append = &Separator {},
-                        append = &ToggleButton {
-                            set_icon_name: "emblem-system-symbolic",
-                            set_css_classes: &["circular"],
-                            set_tooltip_text: Some("机位设置"),
-                            set_active: track!(model.changed(SlaveModel::config_presented()), *model.get_config_presented()),
-                            connect_active_notify(sender) => move |button| {
-                                send!(sender, SlaveMsg::SetConfigPresented(button.is_active()));
+                        append = &GtkButton {
+                            set_icon_name: "video-display-symbolic",
+                            set_sensitive: track!(model.changed(SlaveModel::recording()) || model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()), model.get_recording().is_some() && model.get_polling().is_some() && !model.sync_recording),
+                            set_css_classes?: watch!(model.polling.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
+                            set_tooltip_text: track!(model.changed(SlaveModel::polling()), model.polling.map(|x| if x { "停止拉流" } else { "启动拉流" })),
+                            connect_clicked(sender) => move |_button| {
+                                send!(sender, SlaveMsg::TogglePolling);
                             },
                         },
-                        append = &ToggleButton {
-                            set_icon_name: "window-close-symbolic",
-                            set_css_classes: &["circular"],
-                            set_tooltip_text: Some("移除机位"),
-                            set_visible: false,
-                            connect_active_notify(sender) => move |_button| {
-                                send!(sender, SlaveMsg::DestroySlave);
+                        append = &GtkButton {
+                            set_icon_name: "network-transmit-symbolic",
+                            set_sensitive: track!(model.changed(SlaveModel::connected()), model.connected != None),
+                            set_css_classes?: watch!(model.connected.map(|x| if x { vec!["circular", "suggested-action"] } else { vec!["circular"] }).as_ref()),
+                            set_tooltip_text: track!(model.changed(SlaveModel::connected()), model.connected.map(|x| if x { "断开连接" } else { "连接" })),
+                            connect_clicked(sender) => move |_button| {
+                                send!(sender, SlaveMsg::ToggleConnect);
                             },
                         },
                     },
@@ -403,14 +394,14 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                     set_reveal_flap: track!(model.changed(SlaveModel::config_presented()), *model.get_config_presented()),
                     set_fold_policy: FlapFoldPolicy::Auto,
                     set_locked: true,
-                    set_flap_position: PackType::End,
+                    set_flap_position: PackType::Start,
                     set_separator = Some(&Separator) {},
                     set_content = Some(&Overlay) {
                         set_width_request: 640,
                         set_child: Some(model.video.root_widget()),
                         add_overlay = &GtkBox {
                             set_valign: Align::Start,
-                            set_halign: Align::End,
+                            set_halign: Align::Start,
                             set_hexpand: true,
                             set_margin_all: 20,
                             append = &Frame {

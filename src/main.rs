@@ -33,7 +33,7 @@ use adw::{
 use glib::{clone, DateTime, MainContext, Sender, WeakRef, PRIORITY_DEFAULT};
 use gtk::{
     AboutDialog, Align, Box as GtkBox, Button, Grid, Image, Inhibit, Label, License, MenuButton,
-    Orientation, Separator, Stack, ToggleButton,
+    Orientation, Stack, ToggleButton,
 };
 use relm4::{
     actions::{RelmAction, RelmActionGroup},
@@ -193,23 +193,23 @@ impl Widgets<AppModel, ()> for AppWidgets {
                             send!(sender, AppMsg::SetFullscreened(button.is_active()));
                         }
                     },
-                    pack_end = &Separator {},
-                    pack_end = &Button {
-                        set_icon_name: "list-remove-symbolic",
-                        set_tooltip_text: Some("移除机位"),
-                        set_sensitive: track!(model.changed(AppModel::sync_recording()) || model.changed(AppModel::slaves()), model.get_slaves().len() > 0 && *model.get_sync_recording() ==  Some(false)),
-                        connect_clicked(sender) => move |_button| {
-                            send!(sender, AppMsg::RemoveLastSlave);
-                        },
-                    },
-                    pack_end = &Button {
-                        set_icon_name: "list-add-symbolic",
-                        set_tooltip_text: Some("新建机位"),
-                        set_sensitive: track!(model.changed(AppModel::sync_recording()), model.sync_recording == Some(false)),
-                        connect_clicked[sender = sender.clone(), window = app_window.clone().downgrade()] => move |_button| {
-                            send!(sender, AppMsg::NewSlave(window.clone()));
-                        },
-                    },
+                    // pack_end = &Separator {},
+                    // pack_end = &Button {
+                    //     set_icon_name: "list-remove-symbolic",
+                    //     set_tooltip_text: Some("移除机位"),
+                    //     set_sensitive: track!(model.changed(AppModel::sync_recording()) || model.changed(AppModel::slaves()), model.get_slaves().len() > 0 && *model.get_sync_recording() ==  Some(false)),
+                    //     connect_clicked(sender) => move |_button| {
+                    //         send!(sender, AppMsg::RemoveLastSlave);
+                    //     },
+                    // },
+                    // pack_end = &Button {
+                    //     set_icon_name: "list-add-symbolic",
+                    //     set_tooltip_text: Some("新建机位"),
+                    //     set_sensitive: track!(model.changed(AppModel::sync_recording()), model.sync_recording == Some(false)),
+                    //     connect_clicked[sender = sender.clone(), window = app_window.clone().downgrade()] => move |_button| {
+                    //         send!(sender, AppMsg::NewSlave(window.clone()));
+                    //     },
+                    // },
                 },
                 append: body_stack = &Stack {
                     set_hexpand: true,
