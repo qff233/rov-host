@@ -27,13 +27,13 @@ pub mod ui;
 use std::{cell::RefCell, fs, net::Ipv4Addr, ops::Deref, rc::Rc, str::FromStr};
 
 use adw::{
-    prelude::*, ApplicationWindow, CenteringPolicy, ColorScheme, HeaderBar, StatusPage,
+    prelude::*, ApplicationWindow, CenteringPolicy, ColorScheme, HeaderBar, 
     StyleManager,
 };
 use glib::{clone, DateTime, MainContext, Sender, WeakRef, PRIORITY_DEFAULT};
 use gtk::{
-    AboutDialog, Align, Box as GtkBox, Button, Grid, Image, Inhibit, Label, License, MenuButton,
-    Orientation, Stack, ToggleButton,
+    AboutDialog, Align, Box as GtkBox, Grid, Inhibit, License, MenuButton,
+    Orientation, Stack, 
 };
 use relm4::{
     actions::{RelmAction, RelmActionGroup},
@@ -162,63 +162,16 @@ impl Widgets<AppModel, ()> for AppWidgets {
                 set_orientation: Orientation::Vertical,
                 append = &HeaderBar {
                     set_centering_policy: CenteringPolicy::Strict,
-                    pack_start = &Button {
-                        set_halign: Align::Center,
-                        set_css_classes?: watch!(model.sync_recording.map(|x| if x { &["destructive-action"] as &[&str] } else { &[] as &[&str] })),
-                        set_child = Some(&GtkBox) {
-                            set_spacing: 6,
-                            append = &Image {
-                                set_icon_name?: watch!(model.sync_recording.map(|x| Some(if x { "media-playback-stop-symbolic" } else { "media-record-symbolic" })))
-                            },
-                            append = &Label {
-                                set_label?: watch!(model.sync_recording.map(|x| if x { "停止" } else { "同步录制" })),
-                            },
-                        },
-                        set_visible: track!(model.changed(AppModel::slaves()), model.slaves.len() > 1),
-                        connect_clicked[sender = sender.clone(), window = app_window.clone().downgrade()] => move |__button| {
-                            send!(sender, AppMsg::ToggleSyncRecording(window.clone()));
-                        }
-                    },
                     pack_end = &MenuButton {
                         set_menu_model: Some(&main_menu),
                         set_icon_name: "open-menu-symbolic",
                         set_focus_on_click: false,
                         set_valign: Align::Center,
                     },
-                    pack_end = &ToggleButton {
-                        set_icon_name: "view-fullscreen-symbolic",
-                        set_tooltip_text: Some("切换全屏模式"),
-                        set_active: track!(model.changed(AppModel::fullscreened()), *model.get_fullscreened()),
-                        connect_clicked(sender) => move |button| {
-                            send!(sender, AppMsg::SetFullscreened(button.is_active()));
-                        }
-                    },
-                    // pack_end = &Separator {},
-                    // pack_end = &Button {
-                    //     set_icon_name: "list-remove-symbolic",
-                    //     set_tooltip_text: Some("移除机位"),
-                    //     set_sensitive: track!(model.changed(AppModel::sync_recording()) || model.changed(AppModel::slaves()), model.get_slaves().len() > 0 && *model.get_sync_recording() ==  Some(false)),
-                    //     connect_clicked(sender) => move |_button| {
-                    //         send!(sender, AppMsg::RemoveLastSlave);
-                    //     },
-                    // },
-                    // pack_end = &Button {
-                    //     set_icon_name: "list-add-symbolic",
-                    //     set_tooltip_text: Some("新建机位"),
-                    //     set_sensitive: track!(model.changed(AppModel::sync_recording()), model.sync_recording == Some(false)),
-                    //     connect_clicked[sender = sender.clone(), window = app_window.clone().downgrade()] => move |_button| {
-                    //         send!(sender, AppMsg::NewSlave(window.clone()));
-                    //     },
-                    // },
                 },
                 append: body_stack = &Stack {
                     set_hexpand: true,
                     set_vexpand: true,
-                    add_child: welcome_page = &StatusPage {
-                        set_icon_name: Some("window-new-symbolic"),
-                        set_title: "无机位",
-                        set_description: Some("请点击标题栏右侧按钮添加机位"),
-                    },
                     add_child: slaves_page = &Grid {
                         set_column_homogeneous: true,
                         set_row_homogeneous: true,
@@ -242,11 +195,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
 
     fn post_view() {
         if model.changed(AppModel::slaves()) {
-            if model.get_slaves().len() == 0 {
-                self.body_stack.set_visible_child(&self.welcome_page);
-            } else {
-                self.body_stack.set_visible_child(&self.slaves_page);
-            }
+            self.body_stack.set_visible_child(&self.slaves_page);
         }
     }
 

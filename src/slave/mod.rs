@@ -351,25 +351,6 @@ impl MicroWidgets<SlaveModel> for SlaveWidgets {
                         set_spacing: 5,
                         set_margin_end: 5,
                         append = &GtkButton {
-                            set_icon_name: "camera-photo-symbolic",
-                            set_sensitive: watch!(model.video.model().get_pixbuf().is_some()),
-                            set_css_classes: &["circular"],
-                            set_tooltip_text: Some("画面截图"),
-                            connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::TakeScreenshot);
-                            },
-                        },
-                        append = &GtkButton {
-                            set_icon_name: "camera-video-symbolic",
-                            set_sensitive: track!(model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()) || model.changed(SlaveModel::recording()), !model.sync_recording && model.recording != None &&  model.polling == Some(true)),
-                            set_css_classes?: watch!(model.recording.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
-                            set_tooltip_text: track!(model.changed(SlaveModel::recording()), model.recording.map(|x| if x { "停止录制" } else { "开始录制" })),
-                            connect_clicked(sender) => move |_button| {
-                                send!(sender, SlaveMsg::ToggleRecord);
-                            },
-                        },
-                        append = &Separator {},
-                        append = &GtkButton {
                             set_icon_name: "video-display-symbolic",
                             set_sensitive: track!(model.changed(SlaveModel::recording()) || model.changed(SlaveModel::sync_recording()) || model.changed(SlaveModel::polling()), model.get_recording().is_some() && model.get_polling().is_some() && !model.sync_recording),
                             set_css_classes?: watch!(model.polling.map(|x| if x { vec!["circular", "destructive-action"] } else { vec!["circular"] }).as_ref()),
